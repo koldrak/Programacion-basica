@@ -42,6 +42,7 @@ public class ScratchMVP {
         String name = "Entidad";
         Transform t = new Transform();
         Appearance a = new Appearance();
+        Map<String, Double> vars = new HashMap<>();
 
         // Runtime UI (globo de texto)
         String sayText = null;
@@ -64,7 +65,7 @@ public class ScratchMVP {
     enum BlockKind { EVENT, ACTION }
 
     enum EventType { ON_START, ON_TICK, ON_KEY_DOWN }
-    enum ActionType { MOVE_BY, SET_COLOR, SAY }
+    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR }
 
     static abstract class Block {
         final String id = UUID.randomUUID().toString();
@@ -111,6 +112,19 @@ public class ScratchMVP {
                     return "Acción: Decir \"" + args.getOrDefault("text", "¡Hola!") + "\"";
             }
             return "Acción";
+        }
+    }
+
+    static class IfElseBlock extends Block {
+        String var = "var";
+        double compare = 0;
+        Block thenBranch;
+        Block elseBranch;
+
+        @Override BlockKind kind() { return BlockKind.ACTION; }
+
+        @Override String title() {
+            return "Si " + var + " > " + compare;
         }
     }
 
@@ -204,8 +218,19 @@ public class ScratchMVP {
             while (b != null) {
                 if (b instanceof ActionBlock) {
                     executeAction(e, (ActionBlock) b);
+                    b = b.next;
+                } else if (b instanceof IfElseBlock) {
+                    IfElseBlock ib = (IfElseBlock) b;
+                    double val = e.vars.getOrDefault(ib.var, 0.0);
+                    if (val > ib.compare) {
+                        if (ib.thenBranch != null) executeChain(e, ib.thenBranch);
+                    } else {
+                        if (ib.elseBranch != null) executeChain(e, ib.elseBranch);
+                    }
+                    b = ib.next;
+                } else {
+                    b = b.next;
                 }
-                b = b.next;
             }
         }
 
@@ -229,6 +254,11 @@ public class ScratchMVP {
                     double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 2.0)));
                     e.sayText = text;
                     e.sayUntilMs = System.currentTimeMillis() + (long) (secs * 1000);
+                    break;
+                case SET_VAR:
+                    String var = String.valueOf(ab.args.getOrDefault("var", "var"));
+                    double val = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
+                    e.vars.put(var, val);
                     break;
             }
         }
@@ -525,6 +555,13 @@ public class ScratchMVP {
                 b.args.put("secs", 2.0);
                 return b;
             }));
+            add(makeBtn("Asignar var...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.SET_VAR);
+                b.args.put("var", "var");
+                b.args.put("value", 0);
+                return b;
+            }));
+            add(makeBtn("Si / Si no", IfElseBlock::new));
 
             add(Box.createVerticalGlue());
         }
@@ -628,7 +665,13 @@ public class ScratchMVP {
             v.setLocation(b.x, b.y);
             v.setSize(v.getPreferredSize());
             list.add(v);
-            if (b.next != null) addRecursive(b.next, list);
+            if (b instanceof IfElseBlock ib) {
+                if (ib.thenBranch != null) addRecursive(ib.thenBranch, list);
+                if (ib.elseBranch != null) addRecursive(ib.elseBranch, list);
+                if (ib.next != null) addRecursive(ib.next, list);
+            } else if (b.next != null) {
+                addRecursive(b.next, list);
+            }
         }
 
         BlockView findView(Block b) {
@@ -645,8 +688,40 @@ public class ScratchMVP {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setColor(Color.GRAY);
             for (BlockView v : getViews(sel)) {
-                if (v.block.next != null) {
-                    BlockView child = findView(v.block.next);
+                Block blk = v.block;
+                if (blk instanceof IfElseBlock ib) {
+                    if (ib.thenBranch != null) {
+                        BlockView child = findView(ib.thenBranch);
+                        if (child != null) {
+                            int x1 = v.getX() + v.getWidth()/2;
+                            int y1 = v.getY() + v.getHeight();
+                            int x2 = child.getX() + child.getWidth()/2;
+                            int y2 = child.getY();
+                            g2.drawLine(x1, y1, x2, y2);
+                        }
+                    }
+                    if (ib.elseBranch != null) {
+                        BlockView child = findView(ib.elseBranch);
+                        if (child != null) {
+                            int x1 = v.getX() + v.getWidth();
+                            int y1 = v.getY() + v.getHeight()/2;
+                            int x2 = child.getX();
+                            int y2 = child.getY() + child.getHeight()/2;
+                            g2.drawLine(x1, y1, x2, y2);
+                        }
+                    }
+                    if (ib.next != null) {
+                        BlockView child = findView(ib.next);
+                        if (child != null) {
+                            int x1 = v.getX() + v.getWidth()/2;
+                            int y1 = v.getY() + v.getHeight();
+                            int x2 = child.getX() + child.getWidth()/2;
+                            int y2 = child.getY();
+                            g2.drawLine(x1, y1, x2, y2);
+                        }
+                    }
+                } else if (blk.next != null) {
+                    BlockView child = findView(blk.next);
                     if (child != null) {
                         int x1 = v.getX() + v.getWidth()/2;
                         int y1 = v.getY() + v.getHeight();
@@ -660,18 +735,25 @@ public class ScratchMVP {
         }
 
         void detach(BlockView child) {
-            // romper vínculo (si era next de alguien)
             Entity sel = listPanel.getSelected();
             if (sel == null) return;
             List<EventBlock> roots = project.scriptsByEntity.getOrDefault(sel.id, Collections.emptyList());
-
             for (EventBlock ev : roots) {
-                if (ev.next == child.block) ev.next = null;
-                Block cur = ev.next;
-                while (cur != null) {
-                    if (cur.next == child.block) cur.next = null;
-                    cur = cur.next;
-                }
+                detachLinks(ev, child.block);
+            }
+        }
+
+        void detachLinks(Block b, Block target) {
+            if (b == null) return;
+            if (b.next == target) b.next = null;
+            if (b instanceof IfElseBlock ib) {
+                if (ib.thenBranch == target) ib.thenBranch = null;
+                if (ib.elseBranch == target) ib.elseBranch = null;
+                detachLinks(ib.thenBranch, target);
+                detachLinks(ib.elseBranch, target);
+                detachLinks(ib.next, target);
+            } else {
+                detachLinks(b.next, target);
             }
         }
 
@@ -682,20 +764,29 @@ public class ScratchMVP {
             // No permitir encadenar un EVENT debajo de otro bloque
             if (candidate.block instanceof EventBlock) return;
             BlockView target = null;
+            Point center = new Point(candidate.getX() + candidate.getWidth()/2,
+                                     candidate.getY() + candidate.getHeight()/2);
             for (Component comp : getComponents()) {
                 if (!(comp instanceof BlockView)) continue;
                 BlockView other = (BlockView) comp;
                 if (other == candidate) continue;
-                if (other.getBounds().intersects(candidate.getBounds())) {
+                Rectangle bounds = other.getBounds();
+                Rectangle right = new Rectangle(bounds.x + bounds.width, bounds.y, 40, bounds.height);
+                if (bounds.contains(center) || right.contains(center)) {
                     target = other;
                     break;
                 }
             }
             if (target != null) {
-                if (target.block.next == candidate.block) {
-                    target.block.next = null; // desconectar
+                detach(candidate);
+                if (target.block instanceof IfElseBlock ib) {
+                    Rectangle bounds = target.getBounds();
+                    if (center.x >= bounds.x + bounds.width) {
+                        ib.elseBranch = candidate.block;
+                    } else {
+                        ib.thenBranch = candidate.block;
+                    }
                 } else {
-                    detach(candidate);
                     Block tail = target.block;
                     while (tail.next != null) tail = tail.next;
                     tail.next = candidate.block;
@@ -714,12 +805,7 @@ public class ScratchMVP {
                 roots.remove(bv.block);
             } else {
                 for (EventBlock ev : roots) {
-                    if (ev.next == bv.block) ev.next = null;
-                    Block cur = ev.next;
-                    while (cur != null) {
-                        if (cur.next == bv.block) { cur.next = null; break; }
-                        cur = cur.next;
-                    }
+                    detachLinks(ev, bv.block);
                 }
             }
 
@@ -778,6 +864,7 @@ public class ScratchMVP {
                 setLocation(p);
                 block.x = p.x; block.y = p.y;
                 repaint();
+                canvas.repaint();
             }
             super.processMouseMotionEvent(e);
         }
@@ -846,6 +933,27 @@ public class ScratchMVP {
                             } catch (NumberFormatException ignored) {}
                         }
                     }
+                    case SET_VAR -> {
+                        String var = JOptionPane.showInputDialog(this, "Variable:", ab.args.getOrDefault("var", "var"));
+                        String val = JOptionPane.showInputDialog(this, "Valor:", ab.args.getOrDefault("value", 0));
+                        if (var != null && val != null) {
+                            try {
+                                double s = Double.parseDouble(val);
+                                ab.args.put("var", var);
+                                ab.args.put("value", s);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                }
+            } else if (block instanceof IfElseBlock) {
+                IfElseBlock ib = (IfElseBlock) block;
+                String var = JOptionPane.showInputDialog(this, "Variable:", ib.var);
+                String cmp = JOptionPane.showInputDialog(this, "> que:", ib.compare);
+                if (var != null && cmp != null) {
+                    try {
+                        ib.var = var;
+                        ib.compare = Double.parseDouble(cmp);
+                    } catch (NumberFormatException ignored) {}
                 }
             }
         }
