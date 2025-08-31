@@ -69,6 +69,8 @@ public class ScratchMVP {
     static abstract class Block {
         final String id = UUID.randomUUID().toString();
         Block next;               // cadena secuencial
+        // posición persistente en el lienzo del editor
+        int x = 20, y = 20;
         abstract BlockKind kind();
         abstract String title();
     }
@@ -582,8 +584,11 @@ public class ScratchMVP {
 
             BlockView bv = new BlockView(block, this);
             add(bv);
-            bv.setLocation(20, 40 + getBlockCountFor(sel)*80);
+            int bx = 20;
+            int by = 40 + getBlockCountFor(sel)*80;
+            bv.setLocation(bx, by);
             bv.setSize(bv.getPreferredSize());
+            block.x = bx; block.y = by;
             getViews(sel).add(bv);
 
             // si es evento y no existe aún en scripts, añadir raíz
@@ -605,36 +610,53 @@ public class ScratchMVP {
             removeAll();
             Entity sel = listPanel.getSelected();
             if (sel == null) { repaint(); return; }
-            // reconstruir vistas desde modelo
+            // reconstruir vistas desde modelo con posiciones guardadas
             List<BlockView> list = getViews(sel);
             list.clear();
 
             List<EventBlock> roots = project.scriptsByEntity.getOrDefault(sel.id, Collections.emptyList());
-            int y = 40;
             for (EventBlock ev : roots) {
-                BlockView v = new BlockView(ev, this);
-                add(v);
-                v.setLocation(20, y);
-                v.setSize(v.getPreferredSize());
-                list.add(v);
-                y += v.getHeight() + 20;
-
-                // dibujar la cadena debajo (layout simple)
-                int x = 40;
-                Block cur = ev.next;
-                int innerY = v.getY() + v.getHeight() + 10;
-                while (cur != null) {
-                    BlockView vc = new BlockView(cur, this);
-                    add(vc);
-                    vc.setLocation(x, innerY);
-                    vc.setSize(vc.getPreferredSize());
-                    list.add(vc);
-                    innerY += vc.getHeight() + 10;
-                    cur = cur.next;
-                }
+                addRecursive(ev, list);
             }
             revalidate();
             repaint();
+        }
+
+        void addRecursive(Block b, List<BlockView> list) {
+            BlockView v = new BlockView(b, this);
+            add(v);
+            v.setLocation(b.x, b.y);
+            v.setSize(v.getPreferredSize());
+            list.add(v);
+            if (b.next != null) addRecursive(b.next, list);
+        }
+
+        BlockView findView(Block b) {
+            Entity sel = listPanel.getSelected();
+            if (sel == null) return null;
+            for (BlockView v : getViews(sel)) if (v.block == b) return v;
+            return null;
+        }
+
+        @Override protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Entity sel = listPanel.getSelected();
+            if (sel == null) return;
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setColor(Color.GRAY);
+            for (BlockView v : getViews(sel)) {
+                if (v.block.next != null) {
+                    BlockView child = findView(v.block.next);
+                    if (child != null) {
+                        int x1 = v.getX() + v.getWidth()/2;
+                        int y1 = v.getY() + v.getHeight();
+                        int x2 = child.getX() + child.getWidth()/2;
+                        int y2 = child.getY();
+                        g2.drawLine(x1, y1, x2, y2);
+                    }
+                }
+            }
+            g2.dispose();
         }
 
         void detach(BlockView child) {
@@ -659,40 +681,50 @@ public class ScratchMVP {
 
             // No permitir encadenar un EVENT debajo de otro bloque
             if (candidate.block instanceof EventBlock) return;
-
-            BlockView best = null;
-            int bestDist = 24; // umbral
+            BlockView target = null;
             for (Component comp : getComponents()) {
                 if (!(comp instanceof BlockView)) continue;
                 BlockView other = (BlockView) comp;
                 if (other == candidate) continue;
-                // solo se puede colgar bajo EVENT o ACCIÓN
-                if (other.block.kind()==BlockKind.EVENT || other.block.kind()==BlockKind.ACTION) {
-                    // punto de anclaje: borde inferior de "other"
-                    Point attach = new Point(other.getX() + other.getWidth()/2, other.getY() + other.getHeight());
-                    // punta superior de candidate
-                    Point head = new Point(candidate.getX() + candidate.getWidth()/2, candidate.getY());
-                    int dy = Math.abs(attach.y - head.y);
-                    int dx = Math.abs(attach.x - head.x);
-                    int dist = dy + dx;
-                    if (dy < 20 && dx < 80 && dist < bestDist) {
-                        bestDist = dist;
-                        best = other;
+                if (other.getBounds().intersects(candidate.getBounds())) {
+                    target = other;
+                    break;
+                }
+            }
+            if (target != null) {
+                if (target.block.next == candidate.block) {
+                    target.block.next = null; // desconectar
+                } else {
+                    detach(candidate);
+                    Block tail = target.block;
+                    while (tail.next != null) tail = tail.next;
+                    tail.next = candidate.block;
+                }
+                repaint();
+            }
+        }
+
+        void deleteBlock(BlockView bv) {
+            Entity sel = listPanel.getSelected();
+            if (sel == null) return;
+
+            // eliminar del modelo
+            List<EventBlock> roots = project.scriptsByEntity.getOrDefault(sel.id, new ArrayList<>());
+            if (bv.block instanceof EventBlock) {
+                roots.remove(bv.block);
+            } else {
+                for (EventBlock ev : roots) {
+                    if (ev.next == bv.block) ev.next = null;
+                    Block cur = ev.next;
+                    while (cur != null) {
+                        if (cur.next == bv.block) { cur.next = null; break; }
+                        cur = cur.next;
                     }
                 }
             }
-            if (best != null) {
-                // Romper vinculo anterior del candidato
-                detach(candidate);
-                // Enlazar en "next" del best (al final de su cadena)
-                Block tail = best.block;
-                while (tail.next != null) tail = tail.next;
-                tail.next = candidate.block;
 
-                // Alinear visualmente debajo
-                candidate.setLocation(best.getX() + 20, best.getY() + best.getHeight() + 10);
-                repaint();
-            }
+            // reconstruir vistas
+            redrawForSelected();
         }
     }
 
@@ -704,7 +736,7 @@ public class ScratchMVP {
 
         BlockView(Block block, ScriptCanvasPanel canvas) {
             this.block = block; this.canvas = canvas;
-            enableEvents(AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
+            enableEvents(AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK | AWTEvent.KEY_EVENT_MASK);
             setFocusable(true);
             setToolTipText("Doble clic para editar parámetros");
         }
@@ -717,8 +749,16 @@ public class ScratchMVP {
 
         @Override protected void processMouseEvent(MouseEvent e) {
             if (e.getID() == MouseEvent.MOUSE_PRESSED) {
-                dragOffset = e.getPoint();
-                requestFocusInWindow();
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    JPopupMenu menu = new JPopupMenu();
+                    JMenuItem del = new JMenuItem("Eliminar");
+                    del.addActionListener(ev -> canvas.deleteBlock(this));
+                    menu.add(del);
+                    menu.show(this, e.getX(), e.getY());
+                } else {
+                    dragOffset = e.getPoint();
+                    requestFocusInWindow();
+                }
             } else if (e.getID() == MouseEvent.MOUSE_CLICKED && e.getClickCount()==2) {
                 editParams();
                 repaint();
@@ -736,9 +776,17 @@ public class ScratchMVP {
                 Point p = getLocation();
                 p.translate(e.getX() - dragOffset.x, e.getY() - dragOffset.y);
                 setLocation(p);
+                block.x = p.x; block.y = p.y;
                 repaint();
             }
             super.processMouseMotionEvent(e);
+        }
+
+        @Override protected void processKeyEvent(KeyEvent e) {
+            if (e.getID() == KeyEvent.KEY_PRESSED && e.getKeyCode() == KeyEvent.VK_DELETE) {
+                canvas.deleteBlock(this);
+            }
+            super.processKeyEvent(e);
         }
 
         @Override protected void paintComponent(Graphics g) {
