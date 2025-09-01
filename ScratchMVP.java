@@ -5,6 +5,9 @@ import javax.swing.event.ChangeListener;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.AffineTransform;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
+import java.io.File;
 import java.util.*;
 import java.util.List;
 
@@ -25,17 +28,18 @@ import java.util.List;
 public class ScratchMVP {
 
     // ====== MODELO BÁSICO ======
-    enum ShapeType { RECT, CIRCLE }
 
     static class Transform {
         double x = 100, y = 100, rot = 0, scaleX = 1, scaleY = 1;
     }
 
     static class Appearance {
-        ShapeType shape = ShapeType.RECT;
-        Color color = new Color(0x2E86DE);
-        double width = 60, height = 60; // si CIRCLE, usa radius = width/2
+        String spriteName = null;
+        transient BufferedImage sprite = null;
+        Color color = new Color(0,0,0,0); // overlay
+        double width = 60, height = 60;
         double opacity = 1.0;
+        long colorUntilMs = 0;
     }
 
     static class Entity {
@@ -139,6 +143,26 @@ public class ScratchMVP {
         }
     }
 
+    static class SpriteManager {
+        static Map<String, BufferedImage> sprites = new LinkedHashMap<>();
+
+        static void load() {
+            File dir = new File("sprites");
+            if (!dir.exists()) dir.mkdirs();
+            if (dir.isDirectory()) {
+                File[] files = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".png"));
+                if (files != null) {
+                    for (File f : files) {
+                        try { sprites.put(f.getName(), ImageIO.read(f)); } catch (Exception ignored) {}
+                    }
+                }
+            }
+        }
+
+        static BufferedImage get(String name) { return sprites.get(name); }
+        static String[] names() { return sprites.keySet().toArray(new String[0]); }
+    }
+
     static class ActionBlock extends Block {
         ActionType type;
         Map<String, Object> args = new HashMap<>(); // dx,dy,color,text,duration
@@ -162,7 +186,7 @@ public class ScratchMVP {
                     }
                     return "Acción: Mover " + dir + " " + pasos;
                 case SET_COLOR:
-                    return "Acción: Color";
+                    return "Acción: Color " + args.getOrDefault("secs", 1.0) + "s";
                 case SAY:
                     return "Acción: Decir \"" + args.getOrDefault("text", "¡Hola!") + "\"";
                 case SET_VAR:
@@ -464,6 +488,10 @@ public class ScratchMVP {
                 if (en.sayText != null && t > en.sayUntilMs) {
                     en.sayText = null;
                 }
+                if (en.a.color.getAlpha() > 0 && t > en.a.colorUntilMs) {
+                    en.a.color = new Color(en.a.color.getRed(), en.a.color.getGreen(), en.a.color.getBlue(), 0);
+                    en.a.colorUntilMs = 0;
+                }
             }
 
             stage.repaint();
@@ -483,15 +511,8 @@ public class ScratchMVP {
         }
 
         boolean contains(Entity e, Point p) {
-            if (e.a.shape == ShapeType.RECT) {
-                Rectangle r = new Rectangle((int) e.t.x, (int) e.t.y, (int) e.a.width, (int) e.a.height);
-                return r.contains(p);
-            } else {
-                int r = (int) (e.a.width / 2);
-                int cx = (int) (e.t.x + r), cy = (int) (e.t.y + r);
-                int dx = p.x - cx, dy = p.y - cy;
-                return dx * dx + dy * dy <= r * r;
-            }
+            Rectangle r = new Rectangle((int) e.t.x, (int) e.t.y, (int) e.a.width, (int) e.a.height);
+            return r.contains(p);
         }
 
         void executeChain(Entity e, Block b) {
@@ -528,7 +549,9 @@ public class ScratchMVP {
                 }
                 case SET_COLOR -> {
                     Color chosenColor = (Color) ab.args.getOrDefault("color", new Color(0xE74C3C));
-                    e.a.color = chosenColor;
+                    double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
+                    e.a.color = new Color(chosenColor.getRed(), chosenColor.getGreen(), chosenColor.getBlue(), 128);
+                    e.a.colorUntilMs = System.currentTimeMillis() + (long)(secs * 1000);
                 }
                 case SAY -> {
                     String text = String.valueOf(ab.args.getOrDefault("text", "¡Hola!"));
@@ -631,7 +654,10 @@ public class ScratchMVP {
 
     // ====== UI GENERAL ======
     public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> new MainFrame().setVisible(true));
+        SwingUtilities.invokeLater(() -> {
+            SpriteManager.load();
+            new MainFrame().setVisible(true);
+        });
     }
 
     static class MainFrame extends JFrame {
@@ -741,6 +767,15 @@ public class ScratchMVP {
             btnNewEntity.addActionListener(e -> {
                 Entity en = new Entity();
                 en.name = "Entidad " + (project.entities.size() + 1);
+                String[] sp = SpriteManager.names();
+                if (sp.length > 0) {
+                    en.a.spriteName = sp[0];
+                    en.a.sprite = SpriteManager.get(en.a.spriteName);
+                    if (en.a.sprite != null) {
+                        en.a.width = en.a.sprite.getWidth();
+                        en.a.height = en.a.sprite.getHeight();
+                    }
+                }
                 project.entities.add(en);
                 project.scriptsByEntity.put(en.id, new ArrayList<>());
                 entityListPanel.refresh();
@@ -815,7 +850,7 @@ public class ScratchMVP {
         final EntityListPanel listPanel;
         final ScriptCanvasPanel canvas;
 
-        JComboBox<String> shapeBox;
+        JComboBox<String> spriteBox;
         JButton colorBtn;
         JSpinner wSpin, hSpin;
         DefaultListModel<String> varModel;
@@ -832,12 +867,12 @@ public class ScratchMVP {
 
             add(new JLabel("Inspector de Entidad"));
             add(Box.createVerticalStrut(8));
-            shapeBox = new JComboBox<>(new String[]{"Rectángulo","Círculo"});
+            spriteBox = new JComboBox<>(SpriteManager.names());
             colorBtn = new JButton("Color...");
             wSpin = new JSpinner(new SpinnerNumberModel(60, 10, 500, 5));
             hSpin = new JSpinner(new SpinnerNumberModel(60, 10, 500, 5));
 
-            add(labeled("Forma", shapeBox));
+            add(labeled("Sprite", spriteBox));
             add(Box.createVerticalStrut(6));
             add(labeled("Ancho", wSpin));
             add(labeled("Alto/Radio", hSpin));
@@ -861,11 +896,17 @@ public class ScratchMVP {
             add(Box.createVerticalGlue());
 
             // Listeners
-            shapeBox.addActionListener(e -> {
+            spriteBox.addActionListener(e -> {
                 Entity sel = listPanel.getSelected();
                 if (sel != null) {
-                    sel.a.shape = shapeBox.getSelectedIndex()==0? ShapeType.RECT:ShapeType.CIRCLE;
+                    sel.a.spriteName = (String) spriteBox.getSelectedItem();
+                    sel.a.sprite = SpriteManager.get(sel.a.spriteName);
+                    if (sel.a.sprite != null) {
+                        sel.a.width = sel.a.sprite.getWidth();
+                        sel.a.height = sel.a.sprite.getHeight();
+                    }
                     canvas.repaint();
+                    refresh();
                 }
             });
 
@@ -873,7 +914,10 @@ public class ScratchMVP {
                 Entity sel = listPanel.getSelected();
                 if (sel != null) {
                     Color chosen = JColorChooser.showDialog(this, "Elegir color", sel.a.color);
-                    if (chosen != null) sel.a.color = chosen;
+                    if (chosen != null) {
+                        sel.a.color = new Color(chosen.getRed(), chosen.getGreen(), chosen.getBlue(), 128);
+                        sel.a.colorUntilMs = Long.MAX_VALUE;
+                    }
                     canvas.repaint();
                 }
             });
@@ -951,10 +995,10 @@ public class ScratchMVP {
         void refresh() {
             Entity sel = listPanel.getSelected();
             boolean en = sel != null;
-            shapeBox.setEnabled(en); colorBtn.setEnabled(en); wSpin.setEnabled(en); hSpin.setEnabled(en);
+            spriteBox.setEnabled(en); colorBtn.setEnabled(en); wSpin.setEnabled(en); hSpin.setEnabled(en);
             btnAddVar.setEnabled(en); varList.setEnabled(en);
             if (sel != null) {
-                shapeBox.setSelectedIndex(sel.a.shape==ShapeType.RECT?0:1);
+                spriteBox.setSelectedItem(sel.a.spriteName);
                 wSpin.setValue((int)sel.a.width);
                 hSpin.setValue((int)sel.a.height);
                 varModel.clear();
@@ -1556,7 +1600,16 @@ public class ScratchMVP {
                     }
                     case SET_COLOR -> {
                         Color chosen = JColorChooser.showDialog(this, "Elegir color", (Color) ab.args.getOrDefault("color", new Color(0xE74C3C)));
-                        if (chosen != null) ab.args.put("color", chosen);
+                        if (chosen != null) {
+                            String secs = JOptionPane.showInputDialog(this, "Segundos:", ab.args.getOrDefault("secs", 1.0));
+                            if (secs != null) {
+                                try {
+                                    double s = Double.parseDouble(secs);
+                                    ab.args.put("color", chosen);
+                                    ab.args.put("secs", s);
+                                } catch (NumberFormatException ignored) {}
+                            }
+                        }
                     }
                     case SAY -> {
                         String t = JOptionPane.showInputDialog(this, "Texto:", ab.args.getOrDefault("text", "¡Hola!"));
@@ -1879,8 +1932,10 @@ public class ScratchMVP {
             c.t.x = src.t.x;
             c.t.y = src.t.y;
             c.t.rot = src.t.rot;
-            c.a.shape = src.a.shape;
+            c.a.spriteName = src.a.spriteName;
+            c.a.sprite = src.a.sprite;
             c.a.color = src.a.color;
+            c.a.colorUntilMs = src.a.colorUntilMs;
             c.a.width = src.a.width;
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
@@ -1976,15 +2031,18 @@ public class ScratchMVP {
                 g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) e.a.opacity));
                 g2.translate(e.t.x + e.a.width/2, e.t.y + e.a.height/2);
                 g2.rotate(Math.toRadians(e.t.rot));
-                g2.setColor(e.a.color);
-                if (e.a.shape == ShapeType.RECT) {
-                    g2.fillRect((int)(-e.a.width/2), (int)(-e.a.height/2), (int)e.a.width, (int)e.a.height);
-                    g2.setColor(Color.DARK_GRAY);
-                    g2.drawRect((int)(-e.a.width/2), (int)(-e.a.height/2), (int)e.a.width, (int)e.a.height);
+                if (e.a.sprite != null) {
+                    g2.drawImage(e.a.sprite, (int)(-e.a.width/2), (int)(-e.a.height/2), (int)e.a.width, (int)e.a.height, null);
+                    if (e.a.color.getAlpha() > 0) {
+                        Composite oc = g2.getComposite();
+                        g2.setComposite(AlphaComposite.SrcAtop);
+                        g2.setColor(e.a.color);
+                        g2.fillRect((int)(-e.a.width/2), (int)(-e.a.height/2), (int)e.a.width, (int)e.a.height);
+                        g2.setComposite(oc);
+                    }
                 } else {
-                    g2.fillOval((int)(-e.a.width/2), (int)(-e.a.width/2), (int)e.a.width, (int)e.a.width);
-                    g2.setColor(Color.DARK_GRAY);
-                    g2.drawOval((int)(-e.a.width/2), (int)(-e.a.width/2), (int)e.a.width, (int)e.a.width);
+                    g2.setColor(Color.MAGENTA);
+                    g2.fillRect((int)(-e.a.width/2), (int)(-e.a.height/2), (int)e.a.width, (int)e.a.height);
                 }
                 g2.setTransform(old);
                 g2.setColor(Color.DARK_GRAY);
@@ -2072,15 +2130,8 @@ public class ScratchMVP {
         @Override public void mouseMoved(MouseEvent e) {}
 
         boolean hit(Entity e, Point p) {
-            if (e.a.shape == ShapeType.RECT) {
-                Rectangle r = new Rectangle((int)e.t.x, (int)e.t.y, (int)e.a.width, (int)e.a.height);
-                return r.contains(p);
-            } else {
-                int r = (int)(e.a.width/2);
-                int cx = (int)(e.t.x + r), cy = (int)(e.t.y + r);
-                int dx = p.x - cx, dy = p.y - cy;
-                return (dx*dx + dy*dy) <= r*r;
-            }
+            Rectangle r = new Rectangle((int)e.t.x, (int)e.t.y, (int)e.a.width, (int)e.a.height);
+            return r.contains(p);
         }
     }
 }
