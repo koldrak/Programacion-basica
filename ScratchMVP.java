@@ -66,7 +66,7 @@ public class ScratchMVP {
     // ====== BLOQUES ======
     enum BlockKind { EVENT, ACTION }
 
-    enum EventType { ON_START, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE }
+    enum EventType { ON_START, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
     enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, SPAWN_ENTITY, DELETE_ENTITY }
 
     static abstract class Block {
@@ -100,11 +100,40 @@ public class ScratchMVP {
                 case ON_EDGE:
                     return "Evento: Al tocar borde";
                 case ON_VAR_CHANGE:
-                    return "Evento: Var " + args.getOrDefault("var","var") + " = " + args.getOrDefault("value",0);
+                {
+                    String var = String.valueOf(args.getOrDefault("var","var"));
+                    String op = String.valueOf(args.getOrDefault("op", ">"));
+                    Object val = args.getOrDefault("value",0);
+                    return "Evento: Var de entidad " + var + " " + op + " " + val;
+                }
                 case ON_GLOBAL_VAR_CHANGE:
-                    return "Evento: Var Global " + args.getOrDefault("var","var") + " = " + args.getOrDefault("value",0);
+                {
+                    String var = String.valueOf(args.getOrDefault("var","var"));
+                    String op = String.valueOf(args.getOrDefault("op", ">"));
+                    Object val = args.getOrDefault("value",0);
+                    return "Evento: Var global " + var + " " + op + " " + val;
+                }
                 case ON_COLLIDE:
-                    return "Evento: Colisión";
+                {
+                    @SuppressWarnings("unchecked")
+                    java.util.List<String> names = (java.util.List<String>) args.get("targetNames");
+                    if (names == null || names.isEmpty()) return "Evento: Colisión con cualquiera";
+                    return "Evento: Colisión con " + String.join(", ", names);
+                }
+                case ON_WHILE_VAR:
+                {
+                    String var = String.valueOf(args.getOrDefault("var","var"));
+                    String op = String.valueOf(args.getOrDefault("op", ">"));
+                    Object val = args.getOrDefault("value",0);
+                    return "Evento: Mientras var de entidad " + var + " " + op + " " + val;
+                }
+                case ON_WHILE_GLOBAL_VAR:
+                {
+                    String var = String.valueOf(args.getOrDefault("var","var"));
+                    String op = String.valueOf(args.getOrDefault("op", ">"));
+                    Object val = args.getOrDefault("value",0);
+                    return "Evento: Mientras var global " + var + " " + op + " " + val;
+                }
             }
             return "Evento";
         }
@@ -262,18 +291,6 @@ public class ScratchMVP {
         }
     }
 
-    static class WhileBlock extends Block {
-        String var = "var";
-        double compare = 0;
-        Block body;
-
-        @Override BlockKind kind() { return BlockKind.ACTION; }
-
-        @Override String title() {
-            return "Mientras " + var + " > " + compare;
-        }
-    }
-
     // ====== RUNTIME ======
     static class GameRuntime {
         final Project project;
@@ -376,28 +393,48 @@ public class ScratchMVP {
                 }
             }
 
-            // ON_VAR_CHANGE
+            // ON_VAR_CHANGE / GLOBAL / WHILE
             for (Entity en : stage.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_VAR_CHANGE) {
                         String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        String op = String.valueOf(ev.args.getOrDefault("op", ">"));
                         double target = Double.parseDouble(String.valueOf(ev.args.getOrDefault("value", 0)));
                         double cur = en.vars.getOrDefault(var, 0.0);
                         double prev = varLast.getOrDefault(en.id, Collections.emptyMap()).getOrDefault(ev, cur);
-                        if (cur == target && prev != target) {
+                        boolean cond = op.equals(">") ? cur > target : cur < target;
+                        boolean prevCond = op.equals(">") ? prev > target : prev < target;
+                        if (cond && !prevCond) {
                             triggerEvent(en, ev);
                         }
                         varLast.computeIfAbsent(en.id, k -> new HashMap<>()).put(ev, cur);
                     } else if (ev.type == EventType.ON_GLOBAL_VAR_CHANGE) {
                         String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        String op = String.valueOf(ev.args.getOrDefault("op", ">"));
                         double target = Double.parseDouble(String.valueOf(ev.args.getOrDefault("value", 0)));
                         double cur = project.globalVars.getOrDefault(var, 0.0);
                         double prev = globalVarLast.getOrDefault(ev, cur);
-                        if (cur == target && prev != target) {
+                        boolean cond = op.equals(">") ? cur > target : cur < target;
+                        boolean prevCond = op.equals(">") ? prev > target : prev < target;
+                        if (cond && !prevCond) {
                             triggerEvent(en, ev);
                         }
                         globalVarLast.put(ev, cur);
+                    } else if (ev.type == EventType.ON_WHILE_VAR) {
+                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        String op = String.valueOf(ev.args.getOrDefault("op", ">"));
+                        double target = Double.parseDouble(String.valueOf(ev.args.getOrDefault("value", 0)));
+                        double cur = en.vars.getOrDefault(var, 0.0);
+                        boolean cond = op.equals(">") ? cur > target : cur < target;
+                        if (cond) triggerEvent(en, ev);
+                    } else if (ev.type == EventType.ON_WHILE_GLOBAL_VAR) {
+                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        String op = String.valueOf(ev.args.getOrDefault("op", ">"));
+                        double target = Double.parseDouble(String.valueOf(ev.args.getOrDefault("value", 0)));
+                        double cur = project.globalVars.getOrDefault(var, 0.0);
+                        boolean cond = op.equals(">") ? cur > target : cur < target;
+                        if (cond) triggerEvent(en, ev);
                     }
                 }
             }
@@ -407,10 +444,11 @@ public class ScratchMVP {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_COLLIDE) {
-                        String targetId = (String) ev.args.get("otherId");
+                        @SuppressWarnings("unchecked")
+                        java.util.List<String> ids = (java.util.List<String>) ev.args.get("targetIds");
                         for (Entity other : stage.entities) {
                             if (other == en) continue;
-                            if (targetId != null && !other.id.equals(targetId)) continue;
+                            if (ids != null && !ids.isEmpty() && !ids.contains(other.id)) continue;
                             if (collides(en, other)) {
                                 triggerEvent(en, ev);
                                 break;
@@ -472,12 +510,6 @@ public class ScratchMVP {
                         if (ib.elseBranch != null) executeChain(e, ib.elseBranch);
                     }
                     current = ib.next;
-                } else if (current instanceof WhileBlock) {
-                    WhileBlock wb = (WhileBlock) current;
-                    while (e.vars.getOrDefault(wb.var, 0.0) > wb.compare) {
-                        if (wb.body != null) executeChain(e, wb.body);
-                    }
-                    current = wb.next;
                 } else {
                     current = current.next;
                 }
@@ -969,19 +1001,35 @@ public class ScratchMVP {
                 return b;
             }));
             add(makeBtn("Toca borde", () -> new EventBlock(EventType.ON_EDGE)));
-            add(makeBtn("Var alcanza...", () -> {
+            add(makeBtn("Var de entidad >o<", () -> {
                 EventBlock b = new EventBlock(EventType.ON_VAR_CHANGE);
                 b.args.put("var", "var");
+                b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Var global alcanza...", () -> {
+            add(makeBtn("Var global >o<", () -> {
                 EventBlock b = new EventBlock(EventType.ON_GLOBAL_VAR_CHANGE);
                 b.args.put("var", "var");
+                b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Colisión", () -> new EventBlock(EventType.ON_COLLIDE)));
+            add(makeBtn("Colisión con...", () -> new EventBlock(EventType.ON_COLLIDE)));
+            add(makeBtn("Mientras Var entidad", () -> {
+                EventBlock b = new EventBlock(EventType.ON_WHILE_VAR);
+                b.args.put("var", "var");
+                b.args.put("op", ">");
+                b.args.put("value", 0);
+                return b;
+            }));
+            add(makeBtn("Mientras Var global", () -> {
+                EventBlock b = new EventBlock(EventType.ON_WHILE_GLOBAL_VAR);
+                b.args.put("var", "var");
+                b.args.put("op", ">");
+                b.args.put("value", 0);
+                return b;
+            }));
 
             add(Box.createVerticalStrut(10));
             add(section("Acciones"));
@@ -1055,7 +1103,6 @@ public class ScratchMVP {
             add(makeBtn("Crear entidad", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
             add(makeBtn("Eliminar entidad", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
             add(makeBtn("Si / Si no", IfElseBlock::new));
-            add(makeBtn("Mientras", WhileBlock::new));
 
             add(Box.createVerticalGlue());
         }
@@ -1416,9 +1463,11 @@ public class ScratchMVP {
                     int sel = JOptionPane.showOptionDialog(this, "Botón", "Botón", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, opts, opts[0]);
                     if (sel == 0) ev.args.put("button", MouseEvent.BUTTON1);
                     else if (sel == 1) ev.args.put("button", MouseEvent.BUTTON3);
-                } else if (ev.type == EventType.ON_VAR_CHANGE || ev.type == EventType.ON_GLOBAL_VAR_CHANGE) {
+                } else if (ev.type == EventType.ON_VAR_CHANGE || ev.type == EventType.ON_GLOBAL_VAR_CHANGE ||
+                        ev.type == EventType.ON_WHILE_VAR || ev.type == EventType.ON_WHILE_GLOBAL_VAR) {
                     java.util.List<String> vars = new ArrayList<>();
-                    if (ev.type == EventType.ON_VAR_CHANGE) {
+                    boolean isGlobal = (ev.type == EventType.ON_GLOBAL_VAR_CHANGE || ev.type == EventType.ON_WHILE_GLOBAL_VAR);
+                    if (!isGlobal) {
                         Entity selEnt = canvas.listPanel.getSelected();
                         if (selEnt != null) vars.addAll(selEnt.vars.keySet());
                     } else {
@@ -1429,17 +1478,56 @@ public class ScratchMVP {
                     if (!vars.contains(current)) vars.add(0, current);
                     JSpinner varSpin = new JSpinner(new SpinnerListModel(vars));
                     varSpin.setValue(current);
+                    String curOp = String.valueOf(ev.args.getOrDefault("op", ">"));
+                    String opName = curOp.equals(">") ? "Mayor que" : "Menor que";
+                    JSpinner opSpin = new JSpinner(new SpinnerListModel(new String[]{"Mayor que","Menor que"}));
+                    opSpin.setValue(opName);
                     JSpinner valSpin = new JSpinner(new SpinnerNumberModel(
                             ((Number)ev.args.getOrDefault("value",0)).doubleValue(), -1e9,1e9,1.0));
-                    JPanel pan = new JPanel(new GridLayout(2,2));
-                    pan.add(new JLabel(ev.type == EventType.ON_GLOBAL_VAR_CHANGE ? "Variable global" : "Variable"));
+                    JPanel pan = new JPanel(new GridLayout(3,2));
+                    pan.add(new JLabel(isGlobal ? "Variable global" : "Variable"));
                     pan.add(varSpin);
+                    pan.add(new JLabel("Comparación"));
+                    pan.add(opSpin);
                     pan.add(new JLabel("Valor"));
                     pan.add(valSpin);
                     int r = JOptionPane.showConfirmDialog(this, pan, "Configurar", JOptionPane.OK_CANCEL_OPTION);
                     if (r == JOptionPane.OK_OPTION) {
                         ev.args.put("var", String.valueOf(varSpin.getValue()));
+                        String selOpName = String.valueOf(opSpin.getValue());
+                        ev.args.put("op", selOpName.equals("Mayor que") ? ">" : "<");
                         ev.args.put("value", ((Number)valSpin.getValue()).doubleValue());
+                    }
+                } else if (ev.type == EventType.ON_COLLIDE) {
+                    Entity currentEnt = canvas.listPanel.getSelected();
+                    java.util.List<JCheckBox> checks = new ArrayList<>();
+                    java.util.List<Entity> candidates = new ArrayList<>();
+                    JPanel pan = new JPanel();
+                    pan.setLayout(new BoxLayout(pan, BoxLayout.Y_AXIS));
+                    for (Entity en : canvas.project.entities) {
+                        if (currentEnt != null && en.id.equals(currentEnt.id)) continue;
+                        JCheckBox cb = new JCheckBox(en.name);
+                        @SuppressWarnings("unchecked")
+                        java.util.List<String> selected = (java.util.List<String>) ev.args.getOrDefault("targetIds", new ArrayList<>());
+                        if (selected.contains(en.id)) cb.setSelected(true);
+                        checks.add(cb);
+                        candidates.add(en);
+                        pan.add(cb);
+                    }
+                    int r = JOptionPane.showConfirmDialog(this, new JScrollPane(pan), "Entidades", JOptionPane.OK_CANCEL_OPTION);
+                    if (r == JOptionPane.OK_OPTION) {
+                        java.util.List<String> ids = new ArrayList<>();
+                        java.util.List<String> names = new ArrayList<>();
+                        for (int i = 0; i < checks.size(); i++) {
+                            JCheckBox cb = checks.get(i);
+                            Entity en = candidates.get(i);
+                            if (cb.isSelected()) {
+                                ids.add(en.id);
+                                names.add(en.name);
+                            }
+                        }
+                        ev.args.put("targetIds", ids);
+                        ev.args.put("targetNames", names);
                     }
                 }
             } else if (block instanceof ActionBlock) {
@@ -1831,13 +1919,6 @@ public class ScratchMVP {
                 ib2.thenBranch = cloneBlock(ib.thenBranch);
                 ib2.elseBranch = cloneBlock(ib.elseBranch);
                 copy = ib2;
-            } else if (b instanceof WhileBlock) {
-                WhileBlock wb = (WhileBlock) b;
-                WhileBlock wb2 = new WhileBlock();
-                wb2.var = wb.var;
-                wb2.compare = wb.compare;
-                wb2.body = cloneBlock(wb.body);
-                copy = wb2;
             } else {
                 copy = null;
             }
