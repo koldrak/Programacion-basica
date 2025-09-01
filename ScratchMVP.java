@@ -157,7 +157,8 @@ public class ScratchMVP {
                 case CHANGE_OPACITY:
                     return "Acción: Opacidad " + args.getOrDefault("delta",0.1);
                 case SPAWN_ENTITY:
-                    return "Acción: Crear clon";
+                    String name = (String) args.get("templateName");
+                    return "Acción: Crear entidad" + (name != null ? " " + name : "");
                 case DELETE_ENTITY:
                     return "Acción: Borrar entidad";
             }
@@ -296,7 +297,7 @@ public class ScratchMVP {
             varLast.clear();
             globalVarLast.clear();
             // ON_START una vez
-            for (Entity e : project.entities) {
+            for (Entity e : stage.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(e.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_START) {
@@ -334,7 +335,7 @@ public class ScratchMVP {
             long nowMs = System.currentTimeMillis();
 
             // ON_TICK
-            for (Entity en : project.entities) {
+            for (Entity en : stage.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_TICK) {
@@ -349,7 +350,7 @@ public class ScratchMVP {
             }
 
             // ON_KEY_DOWN (se dispara cada frame si la tecla está presionada)
-            for (Entity en : project.entities) {
+            for (Entity en : stage.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_KEY_DOWN) {
@@ -362,7 +363,7 @@ public class ScratchMVP {
             }
 
             // ON_EDGE_TOUCH
-            for (Entity en : project.entities) {
+            for (Entity en : stage.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_EDGE) {
@@ -376,7 +377,7 @@ public class ScratchMVP {
             }
 
             // ON_VAR_CHANGE
-            for (Entity en : project.entities) {
+            for (Entity en : stage.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_VAR_CHANGE) {
@@ -402,12 +403,12 @@ public class ScratchMVP {
             }
 
             // ON_COLLIDE
-            for (Entity en : project.entities) {
+            for (Entity en : stage.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_COLLIDE) {
                         String targetId = (String) ev.args.get("otherId");
-                        for (Entity other : project.entities) {
+                        for (Entity other : stage.entities) {
                             if (other == en) continue;
                             if (targetId != null && !other.id.equals(targetId)) continue;
                             if (collides(en, other)) {
@@ -421,7 +422,7 @@ public class ScratchMVP {
 
             // limpiar "decir" expirado
             long t = System.currentTimeMillis();
-            for (Entity en : project.entities) {
+            for (Entity en : stage.entities) {
                 if (en.sayText != null && t > en.sayUntilMs) {
                     en.sayText = null;
                 }
@@ -556,25 +557,19 @@ public class ScratchMVP {
                     e.a.opacity = Math.max(0, Math.min(1, e.a.opacity + delta));
                 }
                 case SPAWN_ENTITY -> {
-                    Entity clone = new Entity();
-                    clone.name = e.name + "_copia";
-                    clone.t.x = e.t.x;
-                    clone.t.y = e.t.y;
-                    clone.t.rot = e.t.rot;
-                    clone.a.shape = e.a.shape;
-                    clone.a.color = e.a.color;
-                    clone.a.width = e.a.width;
-                    clone.a.height = e.a.height;
-                    clone.a.opacity = e.a.opacity;
-                    clone.vars.putAll(e.vars);
-                    project.entities.add(clone);
-                    project.scriptsByEntity.put(clone.id, new ArrayList<>());
+                    String tplId = (String) ab.args.get("templateId");
+                    Entity tpl = tplId != null ? project.getById(tplId) : null;
+                    if (tpl == null) tpl = e;
+                    Entity clone = stage.cloneEntity(tpl);
+                    stage.entities.add(clone);
+                    project.scriptsByEntity.put(clone.id, stage.cloneScripts(tpl.id));
                 }
                 case DELETE_ENTITY -> {
                     String targetId = (String) ab.args.get("targetId");
-                    Entity target = targetId == null ? e : project.getById(targetId);
+                    Entity target = targetId == null ? e : stage.entities.stream()
+                            .filter(en -> en.id.equals(targetId)).findFirst().orElse(null);
                     if (target != null) {
-                        project.entities.remove(target);
+                        stage.entities.remove(target);
                         project.scriptsByEntity.remove(target.id);
                     }
                     if (target == e) {
@@ -587,7 +582,7 @@ public class ScratchMVP {
 
         void handleMouseEvent(MouseEvent e) {
             Point p = e.getPoint();
-            for (Entity en : project.entities) {
+            for (Entity en : stage.entities) {
                 if (!contains(en, p)) continue;
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
@@ -1057,7 +1052,7 @@ public class ScratchMVP {
                 b.args.put("delta", -0.1);
                 return b;
             }));
-            add(makeBtn("Clonar entidad", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
+            add(makeBtn("Crear entidad", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
             add(makeBtn("Eliminar entidad", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
             add(makeBtn("Si / Si no", IfElseBlock::new));
             add(makeBtn("Mientras", WhileBlock::new));
@@ -1422,15 +1417,29 @@ public class ScratchMVP {
                     if (sel == 0) ev.args.put("button", MouseEvent.BUTTON1);
                     else if (sel == 1) ev.args.put("button", MouseEvent.BUTTON3);
                 } else if (ev.type == EventType.ON_VAR_CHANGE || ev.type == EventType.ON_GLOBAL_VAR_CHANGE) {
-                    String varLabel = ev.type == EventType.ON_GLOBAL_VAR_CHANGE ? "Variable global:" : "Variable:";
-                    String var = JOptionPane.showInputDialog(this, varLabel, ev.args.getOrDefault("var", "var"));
-                    String val = JOptionPane.showInputDialog(this, "Valor:", ev.args.getOrDefault("value", 0));
-                    if (var != null && val != null) {
-                        try {
-                            double s = Double.parseDouble(val);
-                            ev.args.put("var", var);
-                            ev.args.put("value", s);
-                        } catch (NumberFormatException ignored) {}
+                    java.util.List<String> vars = new ArrayList<>();
+                    if (ev.type == EventType.ON_VAR_CHANGE) {
+                        Entity selEnt = canvas.listPanel.getSelected();
+                        if (selEnt != null) vars.addAll(selEnt.vars.keySet());
+                    } else {
+                        vars.addAll(canvas.project.globalVars.keySet());
+                    }
+                    if (vars.isEmpty()) vars.add("var");
+                    String current = String.valueOf(ev.args.getOrDefault("var", vars.get(0)));
+                    if (!vars.contains(current)) vars.add(0, current);
+                    JSpinner varSpin = new JSpinner(new SpinnerListModel(vars));
+                    varSpin.setValue(current);
+                    JSpinner valSpin = new JSpinner(new SpinnerNumberModel(
+                            ((Number)ev.args.getOrDefault("value",0)).doubleValue(), -1e9,1e9,1.0));
+                    JPanel pan = new JPanel(new GridLayout(2,2));
+                    pan.add(new JLabel(ev.type == EventType.ON_GLOBAL_VAR_CHANGE ? "Variable global" : "Variable"));
+                    pan.add(varSpin);
+                    pan.add(new JLabel("Valor"));
+                    pan.add(valSpin);
+                    int r = JOptionPane.showConfirmDialog(this, pan, "Configurar", JOptionPane.OK_CANCEL_OPTION);
+                    if (r == JOptionPane.OK_OPTION) {
+                        ev.args.put("var", String.valueOf(varSpin.getValue()));
+                        ev.args.put("value", ((Number)valSpin.getValue()).doubleValue());
                     }
                 }
             } else if (block instanceof ActionBlock) {
@@ -1613,6 +1622,28 @@ public class ScratchMVP {
                             } catch (NumberFormatException ignored) {}
                         }
                     }
+                    case SPAWN_ENTITY -> {
+                        if (canvas.project.entities.isEmpty()) break;
+                        java.util.List<String> names = new ArrayList<>();
+                        for (Entity en : canvas.project.entities) names.add(en.name);
+                        String currentName = String.valueOf(ab.args.getOrDefault("templateName", names.get(0)));
+                        if (!names.contains(currentName)) names.add(0, currentName);
+                        JSpinner entSpin = new JSpinner(new SpinnerListModel(names));
+                        entSpin.setValue(currentName);
+                        JPanel pan = new JPanel(new GridLayout(1,2));
+                        pan.add(new JLabel("Entidad"));
+                        pan.add(entSpin);
+                        int r = JOptionPane.showConfirmDialog(this, pan, "Crear entidad", JOptionPane.OK_CANCEL_OPTION);
+                        if (r == JOptionPane.OK_OPTION) {
+                            String name = (String) entSpin.getValue();
+                            Entity tpl = canvas.project.entities.stream()
+                                    .filter(en -> en.name.equals(name)).findFirst().orElse(null);
+                            if (tpl != null) {
+                                ab.args.put("templateId", tpl.id);
+                                ab.args.put("templateName", tpl.name);
+                            }
+                        }
+                    }
                 }
             } else if (block instanceof IfElseBlock) {
                 IfElseBlock ib = (IfElseBlock) block;
@@ -1654,6 +1685,8 @@ public class ScratchMVP {
         GameRuntime runtime;
 
         final Dimension size = new Dimension(900, 620);
+        // Entidades actualmente presentes en el escenario (separadas de las plantillas del proyecto)
+        final List<Entity> entities = new ArrayList<>();
         Entity dragEntity = null;
         Entity selectedEntity = null;
         Point dragOffset = null;
@@ -1695,6 +1728,12 @@ public class ScratchMVP {
                 deleteMode = false;
                 btnDelEntity.setBackground(null);
                 btnDelEntity.setOpaque(false);
+                // limpiar entidades temporales del escenario
+                for (Entity en : new ArrayList<>(entities)) {
+                    project.scriptsByEntity.remove(en.id);
+                }
+                entities.clear();
+                selectedEntity = null;
                 if (onBack!=null) onBack.run();
             });
             btnPlay.addActionListener(e -> {
@@ -1727,7 +1766,7 @@ public class ScratchMVP {
                     Entity tpl = project.entities.stream().filter(en->en.name.equals(selName)).findFirst().orElse(null);
                     if (tpl != null) {
                         Entity clone = cloneEntity(tpl);
-                        project.entities.add(clone);
+                        entities.add(clone);
                         project.scriptsByEntity.put(clone.id, cloneScripts(tpl.id));
                         selectedEntity = clone;
                         repaint();
@@ -1845,7 +1884,7 @@ public class ScratchMVP {
                 }
 
                 // dibujar entidades
-                for (Entity e : project.entities) {
+                for (Entity e : entities) {
                     drawEntity(g2, e);
                 }
                 g2.dispose();
@@ -1908,11 +1947,11 @@ public class ScratchMVP {
                 return;
             }
             if (deleteMode) {
-                List<Entity> revDel = new ArrayList<>(project.entities);
+                List<Entity> revDel = new ArrayList<>(entities);
                 Collections.reverse(revDel);
                 for (Entity en : revDel) {
                     if (hit(en, e.getPoint())) {
-                        project.entities.remove(en);
+                        entities.remove(en);
                         project.scriptsByEntity.remove(en.id);
                         if (selectedEntity == en) selectedEntity = null;
                         if (dragEntity == en) { dragEntity = null; dragOffset = null; }
@@ -1924,7 +1963,7 @@ public class ScratchMVP {
             }
             // buscar entidad bajo ratón (de arriba hacia abajo)
             selectedEntity = null;
-            List<Entity> rev = new ArrayList<>(project.entities);
+            List<Entity> rev = new ArrayList<>(entities);
             Collections.reverse(rev);
             for (Entity en : rev) {
                 if (hit(en, e.getPoint())) {
