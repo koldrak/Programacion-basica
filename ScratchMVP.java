@@ -165,6 +165,89 @@ public class ScratchMVP {
         }
     }
 
+    // ====== VARIABLES GLOBALES ======
+    static class GlobalVarPanel extends JPanel {
+        final Project project;
+        final DefaultListModel<String> model = new DefaultListModel<>();
+        final JList<String> list = new JList<>(model);
+        JSpinner valueSpin;
+        JButton btnAdd, btnDel;
+
+        GlobalVarPanel(Project project) {
+            super();
+            this.project = project;
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+            setBorder(new EmptyBorder(8,8,8,8));
+            add(new JLabel("Variables Globales"));
+            list.setVisibleRowCount(4);
+            add(new JScrollPane(list));
+            valueSpin = new JSpinner(new SpinnerNumberModel(0.0, -1e9, 1e9, 1.0));
+            add(labeled("Valor", valueSpin));
+            JPanel b = new JPanel(new FlowLayout(FlowLayout.LEFT,5,0));
+            btnAdd = new JButton("Agregar");
+            btnDel = new JButton("Eliminar");
+            b.add(btnAdd); b.add(btnDel);
+            add(b);
+
+            list.addListSelectionListener(e -> {
+                if (e.getValueIsAdjusting()) return;
+                String name = list.getSelectedValue();
+                boolean ok = name != null;
+                valueSpin.setEnabled(ok);
+                btnDel.setEnabled(ok);
+                if (ok) valueSpin.setValue(project.globalVars.getOrDefault(name, 0.0));
+            });
+            valueSpin.addChangeListener(ev -> {
+                String name = list.getSelectedValue();
+                if (name != null) {
+                    project.globalVars.put(name, ((Number)valueSpin.getValue()).doubleValue());
+                }
+            });
+            btnAdd.addActionListener(ev -> {
+                JTextField nameField = new JTextField();
+                JSpinner valSpin = new JSpinner(new SpinnerNumberModel(0.0, -1e9, 1e9, 1.0));
+                JPanel pan = new JPanel(new GridLayout(2,2));
+                pan.add(new JLabel("Nombre:")); pan.add(nameField);
+                pan.add(new JLabel("Valor:")); pan.add(valSpin);
+                int r = JOptionPane.showConfirmDialog(this, pan, "Agregar variable global", JOptionPane.OK_CANCEL_OPTION);
+                if (r == JOptionPane.OK_OPTION) {
+                    String name = nameField.getText().trim();
+                    if (!name.isEmpty() && !project.globalVars.containsKey(name)) {
+                        double v = ((Number)valSpin.getValue()).doubleValue();
+                        project.globalVars.put(name, v);
+                        refresh();
+                    }
+                }
+            });
+            btnDel.addActionListener(ev -> {
+                String name = list.getSelectedValue();
+                if (name != null) {
+                    project.globalVars.remove(name);
+                    refresh();
+                }
+            });
+
+            refresh();
+        }
+
+        JPanel labeled(String name, JComponent comp) {
+            JPanel p = new JPanel(new BorderLayout(6,0));
+            p.add(new JLabel(name), BorderLayout.WEST);
+            p.add(comp, BorderLayout.CENTER);
+            return p;
+        }
+
+        void refresh() {
+            model.clear();
+            for (String v : project.globalVars.keySet()) model.addElement(v);
+            String sel = list.getSelectedValue();
+            boolean ok = sel != null && project.globalVars.containsKey(sel);
+            valueSpin.setEnabled(ok);
+            btnDel.setEnabled(ok);
+            if (ok) valueSpin.setValue(project.globalVars.getOrDefault(sel, 0.0));
+        }
+    }
+
     static class IfElseBlock extends Block {
         String var = "var";
         double compare = 0;
@@ -576,6 +659,7 @@ public class ScratchMVP {
         final Runnable goStage;
 
         final EntityListPanel entityListPanel;
+        final GlobalVarPanel globalVarPanel;
         final InspectorPanel inspectorPanel;
         final PalettePanel palettePanel;
         final ScriptCanvasPanel scriptCanvas;
@@ -607,8 +691,13 @@ public class ScratchMVP {
                     JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
             paletteScroll.getVerticalScrollBar().setUnitIncrement(16);
             entityListPanel = new EntityListPanel(project);
+            globalVarPanel = new GlobalVarPanel(project);
             left.add(paletteScroll, BorderLayout.CENTER);
-            left.add(entityListPanel, BorderLayout.SOUTH);
+            JPanel bottom = new JPanel();
+            bottom.setLayout(new BoxLayout(bottom, BoxLayout.Y_AXIS));
+            bottom.add(entityListPanel);
+            bottom.add(globalVarPanel);
+            left.add(bottom, BorderLayout.SOUTH);
 
             // Center: Lienzo de scripts
             scriptCanvas = new ScriptCanvasPanel(project, entityListPanel);
@@ -652,6 +741,7 @@ public class ScratchMVP {
 
         void refreshAll() {
             entityListPanel.refresh();
+            globalVarPanel.refresh();
             scriptCanvas.repaint();
             inspectorPanel.refresh();
         }
@@ -701,6 +791,10 @@ public class ScratchMVP {
         JComboBox<String> shapeBox;
         JButton colorBtn;
         JSpinner wSpin, hSpin;
+        DefaultListModel<String> varModel;
+        JList<String> varList;
+        JSpinner varValue;
+        JButton btnAddVar, btnDelVar;
 
         InspectorPanel(Project p, EntityListPanel lp, ScriptCanvasPanel c) {
             super();
@@ -722,6 +816,21 @@ public class ScratchMVP {
             add(labeled("Alto/Radio", hSpin));
             add(Box.createVerticalStrut(6));
             add(colorBtn);
+            add(Box.createVerticalStrut(10));
+
+            add(new JLabel("Variables"));
+            varModel = new DefaultListModel<>();
+            varList = new JList<>(varModel);
+            varList.setVisibleRowCount(5);
+            add(new JScrollPane(varList));
+            varValue = new JSpinner(new SpinnerNumberModel(0.0, -1e9, 1e9, 1.0));
+            add(labeled("Valor", varValue));
+            JPanel vb = new JPanel(new FlowLayout(FlowLayout.LEFT,5,0));
+            btnAddVar = new JButton("Agregar");
+            btnDelVar = new JButton("Eliminar");
+            vb.add(btnAddVar); vb.add(btnDelVar);
+            add(vb);
+
             add(Box.createVerticalGlue());
 
             // Listeners
@@ -753,6 +862,53 @@ public class ScratchMVP {
             wSpin.addChangeListener(cl);
             hSpin.addChangeListener(cl);
 
+            varList.addListSelectionListener(e -> {
+                if (e.getValueIsAdjusting()) return;
+                Entity sel = listPanel.getSelected();
+                String name = varList.getSelectedValue();
+                boolean ok = sel != null && name != null;
+                varValue.setEnabled(ok);
+                btnDelVar.setEnabled(ok);
+                if (ok) {
+                    varValue.setValue(sel.vars.getOrDefault(name, 0.0));
+                }
+            });
+            varValue.addChangeListener(ev -> {
+                Entity sel = listPanel.getSelected();
+                String name = varList.getSelectedValue();
+                if (sel != null && name != null) {
+                    sel.vars.put(name, ((Number)varValue.getValue()).doubleValue());
+                    canvas.repaint();
+                }
+            });
+            btnAddVar.addActionListener(ev -> {
+                Entity sel = listPanel.getSelected();
+                if (sel != null) {
+                    JTextField nameField = new JTextField();
+                    JSpinner valSpin = new JSpinner(new SpinnerNumberModel(0.0, -1e9, 1e9, 1.0));
+                    JPanel pan = new JPanel(new GridLayout(2,2));
+                    pan.add(new JLabel("Nombre:")); pan.add(nameField);
+                    pan.add(new JLabel("Valor:")); pan.add(valSpin);
+                    int r = JOptionPane.showConfirmDialog(this, pan, "Agregar variable", JOptionPane.OK_CANCEL_OPTION);
+                    if (r == JOptionPane.OK_OPTION) {
+                        String name = nameField.getText().trim();
+                        if (!name.isEmpty() && !sel.vars.containsKey(name)) {
+                            double val = ((Number)valSpin.getValue()).doubleValue();
+                            sel.vars.put(name, val);
+                            refresh();
+                        }
+                    }
+                }
+            });
+            btnDelVar.addActionListener(ev -> {
+                Entity sel = listPanel.getSelected();
+                String name = varList.getSelectedValue();
+                if (sel != null && name != null) {
+                    sel.vars.remove(name);
+                    refresh();
+                }
+            });
+
             // actualizar al cambiar selección
             listPanel.list.addListSelectionListener(e -> refresh());
             refresh();
@@ -769,10 +925,22 @@ public class ScratchMVP {
             Entity sel = listPanel.getSelected();
             boolean en = sel != null;
             shapeBox.setEnabled(en); colorBtn.setEnabled(en); wSpin.setEnabled(en); hSpin.setEnabled(en);
+            btnAddVar.setEnabled(en); varList.setEnabled(en);
             if (sel != null) {
                 shapeBox.setSelectedIndex(sel.a.shape==ShapeType.RECT?0:1);
                 wSpin.setValue((int)sel.a.width);
                 hSpin.setValue((int)sel.a.height);
+                varModel.clear();
+                for (String v : sel.vars.keySet()) varModel.addElement(v);
+            } else {
+                varModel.clear();
+            }
+            String name = varList.getSelectedValue();
+            boolean vs = en && name != null;
+            varValue.setEnabled(vs);
+            btnDelVar.setEnabled(vs);
+            if (vs) {
+                varValue.setValue(sel.vars.getOrDefault(name, 0.0));
             }
         }
     }
@@ -1305,47 +1473,87 @@ public class ScratchMVP {
                         }
                     }
                     case SET_VAR -> {
-                        String var = JOptionPane.showInputDialog(this, "Variable:", ab.args.getOrDefault("var", "var"));
-                        String val = JOptionPane.showInputDialog(this, "Valor:", ab.args.getOrDefault("value", 0));
-                        if (var != null && val != null) {
-                            try {
-                                double s = Double.parseDouble(val);
-                                ab.args.put("var", var);
-                                ab.args.put("value", s);
-                            } catch (NumberFormatException ignored) {}
+                        Entity sel = canvas.listPanel.getSelected();
+                        java.util.Set<String> names = sel != null ? sel.vars.keySet() : java.util.Collections.emptySet();
+                        JComboBox<String> varBox = new JComboBox<>(names.toArray(new String[0]));
+                        double cur = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
+                        JSpinner valSpin = new JSpinner(new SpinnerNumberModel(cur, -1e9, 1e9, 1.0));
+                        JPanel pan = new JPanel(new GridLayout(2,2));
+                        pan.add(new JLabel("Variable:")); pan.add(varBox);
+                        pan.add(new JLabel("Valor:")); pan.add(valSpin);
+                        if (names.isEmpty()) JOptionPane.showMessageDialog(this, "No hay variables", "Asignar variable", JOptionPane.WARNING_MESSAGE);
+                        else {
+                            int r = JOptionPane.showConfirmDialog(this, pan, "Asignar variable", JOptionPane.OK_CANCEL_OPTION);
+                            if (r == JOptionPane.OK_OPTION) {
+                                String v = (String) varBox.getSelectedItem();
+                                double d = ((Number) valSpin.getValue()).doubleValue();
+                                ab.args.put("var", v);
+                                ab.args.put("value", d);
+                            }
                         }
                     }
                     case CHANGE_VAR -> {
-                        String var = JOptionPane.showInputDialog(this, "Variable:", ab.args.getOrDefault("var", "var"));
-                        String val = JOptionPane.showInputDialog(this, "Delta:", ab.args.getOrDefault("delta", 1));
-                        if (var != null && val != null) {
-                            try {
-                                double s = Double.parseDouble(val);
-                                ab.args.put("var", var);
-                                ab.args.put("delta", s);
-                            } catch (NumberFormatException ignored) {}
+                        Entity sel = canvas.listPanel.getSelected();
+                        java.util.Set<String> names = sel != null ? sel.vars.keySet() : java.util.Collections.emptySet();
+                        JComboBox<String> varBox = new JComboBox<>(names.toArray(new String[0]));
+                        JComboBox<String> opBox = new JComboBox<>(new String[]{"Sumar","Restar"});
+                        double cur = Math.abs(Double.parseDouble(String.valueOf(ab.args.getOrDefault("delta", 1))));
+                        JSpinner amtSpin = new JSpinner(new SpinnerNumberModel(cur, 0.0, 1000.0, 1.0));
+                        JPanel pan = new JPanel(new GridLayout(3,2));
+                        pan.add(new JLabel("Variable:")); pan.add(varBox);
+                        pan.add(new JLabel("Operación:")); pan.add(opBox);
+                        pan.add(new JLabel("Cantidad:")); pan.add(amtSpin);
+                        if (names.isEmpty()) JOptionPane.showMessageDialog(this, "No hay variables", "Cambiar variable", JOptionPane.WARNING_MESSAGE);
+                        else {
+                            int r = JOptionPane.showConfirmDialog(this, pan, "Cambiar variable", JOptionPane.OK_CANCEL_OPTION);
+                            if (r == JOptionPane.OK_OPTION) {
+                                String v = (String) varBox.getSelectedItem();
+                                double d = ((Number) amtSpin.getValue()).doubleValue();
+                                if (opBox.getSelectedIndex() == 1) d = -d;
+                                ab.args.put("var", v);
+                                ab.args.put("delta", d);
+                            }
                         }
                     }
                     case SET_GLOBAL_VAR -> {
-                        String var = JOptionPane.showInputDialog(this, "Variable global:", ab.args.getOrDefault("var", "var"));
-                        String val = JOptionPane.showInputDialog(this, "Valor:", ab.args.getOrDefault("value", 0));
-                        if (var != null && val != null) {
-                            try {
-                                double s = Double.parseDouble(val);
-                                ab.args.put("var", var);
-                                ab.args.put("value", s);
-                            } catch (NumberFormatException ignored) {}
+                        java.util.Set<String> names = canvas.project.globalVars.keySet();
+                        JComboBox<String> varBox = new JComboBox<>(names.toArray(new String[0]));
+                        double cur = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
+                        JSpinner valSpin = new JSpinner(new SpinnerNumberModel(cur, -1e9, 1e9, 1.0));
+                        JPanel pan = new JPanel(new GridLayout(2,2));
+                        pan.add(new JLabel("Variable:")); pan.add(varBox);
+                        pan.add(new JLabel("Valor:")); pan.add(valSpin);
+                        if (names.isEmpty()) JOptionPane.showMessageDialog(this, "No hay variables", "Asignar variable", JOptionPane.WARNING_MESSAGE);
+                        else {
+                            int r = JOptionPane.showConfirmDialog(this, pan, "Asignar variable", JOptionPane.OK_CANCEL_OPTION);
+                            if (r == JOptionPane.OK_OPTION) {
+                                String v = (String) varBox.getSelectedItem();
+                                double d = ((Number) valSpin.getValue()).doubleValue();
+                                ab.args.put("var", v);
+                                ab.args.put("value", d);
+                            }
                         }
                     }
                     case CHANGE_GLOBAL_VAR -> {
-                        String var = JOptionPane.showInputDialog(this, "Variable global:", ab.args.getOrDefault("var", "var"));
-                        String val = JOptionPane.showInputDialog(this, "Delta:", ab.args.getOrDefault("delta", 1));
-                        if (var != null && val != null) {
-                            try {
-                                double s = Double.parseDouble(val);
-                                ab.args.put("var", var);
-                                ab.args.put("delta", s);
-                            } catch (NumberFormatException ignored) {}
+                        java.util.Set<String> names = canvas.project.globalVars.keySet();
+                        JComboBox<String> varBox = new JComboBox<>(names.toArray(new String[0]));
+                        JComboBox<String> opBox = new JComboBox<>(new String[]{"Sumar","Restar"});
+                        double cur = Math.abs(Double.parseDouble(String.valueOf(ab.args.getOrDefault("delta", 1))));
+                        JSpinner amtSpin = new JSpinner(new SpinnerNumberModel(cur, 0.0, 1000.0, 1.0));
+                        JPanel pan = new JPanel(new GridLayout(3,2));
+                        pan.add(new JLabel("Variable:")); pan.add(varBox);
+                        pan.add(new JLabel("Operación:")); pan.add(opBox);
+                        pan.add(new JLabel("Cantidad:")); pan.add(amtSpin);
+                        if (names.isEmpty()) JOptionPane.showMessageDialog(this, "No hay variables", "Cambiar variable", JOptionPane.WARNING_MESSAGE);
+                        else {
+                            int r = JOptionPane.showConfirmDialog(this, pan, "Cambiar variable", JOptionPane.OK_CANCEL_OPTION);
+                            if (r == JOptionPane.OK_OPTION) {
+                                String v = (String) varBox.getSelectedItem();
+                                double d = ((Number) amtSpin.getValue()).doubleValue();
+                                if (opBox.getSelectedIndex() == 1) d = -d;
+                                ab.args.put("var", v);
+                                ab.args.put("delta", d);
+                            }
                         }
                     }
                     case WAIT -> {
@@ -1450,6 +1658,7 @@ public class ScratchMVP {
         Entity selectedEntity = null;
         Point dragOffset = null;
         boolean playing = false;
+        boolean deleteMode = false;
 
         StagePanel(Project p, Set<Integer> keysDown) {
             this.project = p; this.keysDown = keysDown;
@@ -1461,12 +1670,12 @@ public class ScratchMVP {
             JButton btnBack = new JButton("◀ Volver al Editor");
             JButton btnPlay = new JButton("▶ Probar");
             JButton btnStop = new JButton("■ Detener");
-            JButton btnNewEntity = new JButton("Nueva Entidad");
+            JButton btnAddEntity = new JButton("Agregar Entidad");
             JButton btnDelEntity = new JButton("Eliminar Entidad");
             bar.add(btnBack);
             bar.add(btnPlay); bar.add(btnStop);
             bar.add(Box.createHorizontalStrut(20));
-            bar.add(btnNewEntity); bar.add(btnDelEntity);
+            bar.add(btnAddEntity); bar.add(btnDelEntity);
             add(bar, BorderLayout.NORTH);
 
             // Canvas
@@ -1479,37 +1688,126 @@ public class ScratchMVP {
             cv.addMouseMotionListener(this);
             add(cv, BorderLayout.CENTER);
 
-            btnBack.addActionListener(e -> { if (onBack!=null) onBack.run(); });
+            btnBack.addActionListener(e -> {
+                playing = false;
+                btnPlay.setBackground(null);
+                btnPlay.setOpaque(false);
+                deleteMode = false;
+                btnDelEntity.setBackground(null);
+                btnDelEntity.setOpaque(false);
+                if (onBack!=null) onBack.run();
+            });
             btnPlay.addActionListener(e -> {
                 playing = true;
+                deleteMode = false;
+                btnDelEntity.setBackground(null);
+                btnDelEntity.setOpaque(false);
+                btnPlay.setBackground(new Color(0x2ECC71));
+                btnPlay.setOpaque(true);
                 requestFocusInWindow();
                 cv.requestFocusInWindow();
                 if (onPlay != null) onPlay.run();
             });
             btnStop.addActionListener(e -> {
                 playing = false;
+                btnPlay.setBackground(null);
+                btnPlay.setOpaque(false);
+                deleteMode = false;
+                btnDelEntity.setBackground(null);
+                btnDelEntity.setOpaque(false);
                 if (onStop != null) onStop.run();
                 repaint();
             });
-            btnNewEntity.addActionListener(e -> {
+            btnAddEntity.addActionListener(e -> {
                 if (playing) return;
-                Entity en = new Entity();
-                en.name = "Entidad " + (project.entities.size() + 1);
-                project.entities.add(en);
-                project.scriptsByEntity.put(en.id, new ArrayList<>());
-                selectedEntity = en;
-                repaint();
-            });
-            btnDelEntity.addActionListener(e -> {
-                if (playing) return;
-                if (selectedEntity != null) {
-                    project.entities.remove(selectedEntity);
-                    project.scriptsByEntity.remove(selectedEntity.id);
-                    if (dragEntity == selectedEntity) dragEntity = null;
-                    selectedEntity = null;
-                    repaint();
+                if (project.entities.isEmpty()) return;
+                String[] opts = project.entities.stream().map(en->en.name).toArray(String[]::new);
+                String selName = (String) JOptionPane.showInputDialog(this, "Entidad", "Agregar entidad", JOptionPane.PLAIN_MESSAGE, null, opts, opts[0]);
+                if (selName != null) {
+                    Entity tpl = project.entities.stream().filter(en->en.name.equals(selName)).findFirst().orElse(null);
+                    if (tpl != null) {
+                        Entity clone = cloneEntity(tpl);
+                        project.entities.add(clone);
+                        project.scriptsByEntity.put(clone.id, cloneScripts(tpl.id));
+                        selectedEntity = clone;
+                        repaint();
+                    }
                 }
             });
+            btnDelEntity.addActionListener(e -> {
+                deleteMode = !deleteMode;
+                if (deleteMode) {
+                    btnDelEntity.setBackground(Color.RED);
+                    btnDelEntity.setOpaque(true);
+                } else {
+                    btnDelEntity.setBackground(null);
+                    btnDelEntity.setOpaque(false);
+                }
+            });
+        }
+
+        Entity cloneEntity(Entity src) {
+            Entity c = new Entity();
+            c.name = src.name + "_copia";
+            c.t.x = src.t.x;
+            c.t.y = src.t.y;
+            c.t.rot = src.t.rot;
+            c.a.shape = src.a.shape;
+            c.a.color = src.a.color;
+            c.a.width = src.a.width;
+            c.a.height = src.a.height;
+            c.a.opacity = src.a.opacity;
+            c.vars.putAll(src.vars);
+            return c;
+        }
+
+        List<EventBlock> cloneScripts(String srcId) {
+            List<EventBlock> roots = project.scriptsByEntity.getOrDefault(srcId, new ArrayList<>());
+            List<EventBlock> out = new ArrayList<>();
+            for (EventBlock ev : roots) {
+                out.add((EventBlock) cloneBlock(ev));
+            }
+            return out;
+        }
+
+        Block cloneBlock(Block b) {
+            if (b == null) return null;
+            Block copy;
+            if (b instanceof EventBlock) {
+                EventBlock ev = (EventBlock) b;
+                EventBlock ev2 = new EventBlock(ev.type);
+                ev2.args.putAll(ev.args);
+                for (Block extra : ev.extraNext) ev2.extraNext.add(cloneBlock(extra));
+                copy = ev2;
+            } else if (b instanceof ActionBlock) {
+                ActionBlock ab = (ActionBlock) b;
+                ActionBlock ab2 = new ActionBlock(ab.type);
+                ab2.args.putAll(ab.args);
+                copy = ab2;
+            } else if (b instanceof IfElseBlock) {
+                IfElseBlock ib = (IfElseBlock) b;
+                IfElseBlock ib2 = new IfElseBlock();
+                ib2.var = ib.var;
+                ib2.compare = ib.compare;
+                ib2.thenBranch = cloneBlock(ib.thenBranch);
+                ib2.elseBranch = cloneBlock(ib.elseBranch);
+                copy = ib2;
+            } else if (b instanceof WhileBlock) {
+                WhileBlock wb = (WhileBlock) b;
+                WhileBlock wb2 = new WhileBlock();
+                wb2.var = wb.var;
+                wb2.compare = wb.compare;
+                wb2.body = cloneBlock(wb.body);
+                copy = wb2;
+            } else {
+                copy = null;
+            }
+            if (copy != null) {
+                copy.x = b.x;
+                copy.y = b.y;
+                copy.next = cloneBlock(b.next);
+            }
+            return copy;
         }
 
         void setRuntimeControls(Runnable play, Runnable stop, Runnable back) {
@@ -1539,6 +1837,13 @@ public class ScratchMVP {
                 for (int x=0; x<getWidth(); x+=40) g2.drawLine(x,0,x,getHeight());
                 for (int y=0; y<getHeight(); y+=40) g2.drawLine(0,y,getWidth(),y);
 
+                g2.setColor(Color.DARK_GRAY);
+                int gy = 15;
+                for (Map.Entry<String, Double> gv : project.globalVars.entrySet()) {
+                    g2.drawString(gv.getKey() + ": " + gv.getValue(), 10, gy);
+                    gy += 15;
+                }
+
                 // dibujar entidades
                 for (Entity e : project.entities) {
                     drawEntity(g2, e);
@@ -1563,6 +1868,11 @@ public class ScratchMVP {
                 }
                 g2.setTransform(old);
                 g2.setColor(Color.DARK_GRAY);
+                int vy = (int)e.t.y - 18;
+                for (Map.Entry<String, Double> var : e.vars.entrySet()) {
+                    g2.drawString(var.getKey() + ":" + var.getValue(), (int)e.t.x + 4, vy);
+                    vy -= 12;
+                }
                 g2.drawString(e.name, (int)e.t.x + 4, (int)e.t.y - 4);
                 if (e == selectedEntity) {
                     g2.setColor(Color.RED);
@@ -1595,6 +1905,21 @@ public class ScratchMVP {
         @Override public void mousePressed(MouseEvent e) {
             if (playing) {
                 if (runtime != null) runtime.handleMouseEvent(e);
+                return;
+            }
+            if (deleteMode) {
+                List<Entity> revDel = new ArrayList<>(project.entities);
+                Collections.reverse(revDel);
+                for (Entity en : revDel) {
+                    if (hit(en, e.getPoint())) {
+                        project.entities.remove(en);
+                        project.scriptsByEntity.remove(en.id);
+                        if (selectedEntity == en) selectedEntity = null;
+                        if (dragEntity == en) { dragEntity = null; dragOffset = null; }
+                        repaint();
+                        break;
+                    }
+                }
                 return;
             }
             // buscar entidad bajo ratón (de arriba hacia abajo)
