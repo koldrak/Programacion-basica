@@ -143,8 +143,8 @@ public class ScratchMVP {
     // ====== BLOQUES ======
     enum BlockKind { EVENT, ACTION }
 
-    enum EventType { ON_START, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
-    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, SPAWN_ENTITY, DELETE_ENTITY }
+    enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
+    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY }
 
     static abstract class Block implements Serializable {
         final String id = UUID.randomUUID().toString();
@@ -167,6 +167,7 @@ public class ScratchMVP {
         @Override String title() {
             switch (type) {
                 case ON_START: return "Evento: Al iniciar";
+                case ON_APPEAR: return "Evento: Al aparecer";
                 case ON_TICK: return "Evento: Cada (ms)=" + args.getOrDefault("intervalMs", 500);
                 case ON_KEY_DOWN:
                     int kc = (int) args.getOrDefault("keyCode", KeyEvent.VK_RIGHT);
@@ -262,6 +263,11 @@ public class ScratchMVP {
                     return "Acción: Tamaño (" + args.getOrDefault("w",60) + "," + args.getOrDefault("h",60) + ")";
                 case CHANGE_OPACITY:
                     return "Acción: Opacidad " + args.getOrDefault("delta",0.1);
+                case RANDOM:
+                    return "Acción: Aleatorio";
+                case MOVE_TO_ENTITY:
+                    String tgt = (String) args.get("targetName");
+                    return "Acción: Mover a " + (tgt != null ? tgt : "entidad");
                 case SPAWN_ENTITY:
                     String name = (String) args.get("templateName");
                     return "Acción: Crear entidad" + (name != null ? " " + name : "");
@@ -381,7 +387,7 @@ public class ScratchMVP {
             for (Entity e : stage.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(e.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
-                    if (ev.type == EventType.ON_START) {
+                    if (ev.type == EventType.ON_START || ev.type == EventType.ON_APPEAR) {
                         triggerEvent(e, ev);
                     } else if (ev.type == EventType.ON_TICK) {
                         tickLastFire.computeIfAbsent(e.id, k -> new HashMap<>()).put(ev, System.currentTimeMillis());
@@ -635,6 +641,36 @@ public class ScratchMVP {
                     double delta = Double.parseDouble(String.valueOf(ab.args.getOrDefault("delta", 0.1)));
                     e.a.opacity = Math.max(0, Math.min(1, e.a.opacity + delta));
                 }
+                case RANDOM -> {
+                    List<ActionBlock> options = new ArrayList<>();
+                    Block cur = ab.next;
+                    while (cur instanceof ActionBlock) {
+                        options.add((ActionBlock) cur);
+                        cur = cur.next;
+                    }
+                    if (!options.isEmpty()) {
+                        ActionBlock chosen = options.get(new Random().nextInt(options.size()));
+                        executeAction(e, chosen);
+                    }
+                    return false;
+                }
+                case MOVE_TO_ENTITY -> {
+                    String targetName = (String) ab.args.get("targetName");
+                    Entity nearest = null;
+                    double best = Double.MAX_VALUE;
+                    for (Entity other : stage.entities) {
+                        if (other == e) continue;
+                        if (targetName != null && !targetName.equals(other.name)) continue;
+                        double dx = other.t.x - e.t.x;
+                        double dy = other.t.y - e.t.y;
+                        double d = Math.hypot(dx, dy);
+                        if (d < best) { best = d; nearest = other; }
+                    }
+                    if (nearest != null) {
+                        e.t.x = nearest.t.x;
+                        e.t.y = nearest.t.y;
+                    }
+                }
                 case SPAWN_ENTITY -> {
                     String tplId = (String) ab.args.get("templateId");
                     Entity tpl = tplId != null ? project.getById(tplId) : null;
@@ -642,6 +678,8 @@ public class ScratchMVP {
                     Entity clone = stage.cloneEntity(tpl);
                     stage.entities.add(clone);
                     project.scriptsByEntity.put(clone.id, stage.cloneScripts(tpl.id));
+                    List<EventBlock> roots = project.scriptsByEntity.getOrDefault(clone.id, Collections.emptyList());
+                    for (EventBlock ev : roots) if (ev.type == EventType.ON_APPEAR) triggerEvent(clone, ev);
                 }
                 case DELETE_ENTITY -> {
                     String targetId = (String) ab.args.get("targetId");
@@ -894,6 +932,7 @@ public class ScratchMVP {
         JList<String> varList;
         JSpinner varValue;
         JButton btnAddVar, btnDelVar;
+        boolean updating = false;
 
         InspectorPanel(Project p, EntityListPanel lp, ScriptCanvasPanel c) {
             super();
@@ -934,6 +973,7 @@ public class ScratchMVP {
 
             // Listeners
             shapeBox.addActionListener(e -> {
+                if (updating) return;
                 Entity sel = listPanel.getSelected();
                 if (sel != null) {
                     int idx = shapeBox.getSelectedIndex();
@@ -1059,7 +1099,9 @@ public class ScratchMVP {
                     case STAR -> 5;
                     case POLYGON -> 6;
                 };
+                updating = true;
                 shapeBox.setSelectedIndex(idx);
+                updating = false;
                 wSpin.setValue((int)sel.a.width);
                 hSpin.setValue((int)sel.a.height);
                 varModel.clear();
@@ -1144,6 +1186,7 @@ public class ScratchMVP {
 
             add(section("Eventos"));
             add(makeBtn("Al iniciar", () -> new EventBlock(EventType.ON_START)));
+            add(makeBtn("Al aparecer", () -> new EventBlock(EventType.ON_APPEAR)));
             add(makeBtn("Cada (ms)...", () -> {
                 EventBlock b = new EventBlock(EventType.ON_TICK);
                 b.args.put("intervalMs", 500);
@@ -1259,6 +1302,8 @@ public class ScratchMVP {
                 b.args.put("delta", -0.1);
                 return b;
             }));
+            add(makeBtn("Aleatorio", () -> new ActionBlock(ActionType.RANDOM)));
+            add(makeBtn("Mover a entidad...", () -> new ActionBlock(ActionType.MOVE_TO_ENTITY)));
             add(makeBtn("Crear entidad", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
             add(makeBtn("Eliminar entidad", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
 
@@ -1816,6 +1861,28 @@ public class ScratchMVP {
                             } catch (NumberFormatException ignored) {}
                         }
                     }
+                    case MOVE_TO_ENTITY -> {
+                        if (canvas.project.entities.isEmpty()) break;
+                        java.util.List<String> names = new ArrayList<>();
+                        for (Entity en : canvas.project.entities) names.add(en.name);
+                        String currentName = String.valueOf(ab.args.getOrDefault("targetName", names.get(0)));
+                        if (!names.contains(currentName)) names.add(0, currentName);
+                        JSpinner entSpin = new JSpinner(new SpinnerListModel(names));
+                        entSpin.setValue(currentName);
+                        JPanel pan = new JPanel(new GridLayout(1,2));
+                        pan.add(new JLabel("Entidad"));
+                        pan.add(entSpin);
+                        int r = JOptionPane.showConfirmDialog(this, pan, "Mover a entidad", JOptionPane.OK_CANCEL_OPTION);
+                        if (r == JOptionPane.OK_OPTION) {
+                            String name = (String) entSpin.getValue();
+                            Entity tpl = canvas.project.entities.stream()
+                                    .filter(en -> en.name.equals(name)).findFirst().orElse(null);
+                            if (tpl != null) {
+                                ab.args.put("targetId", tpl.id);
+                                ab.args.put("targetName", tpl.name);
+                            }
+                        }
+                    }
                     case SPAWN_ENTITY -> {
                         if (canvas.project.entities.isEmpty()) break;
                         java.util.List<String> names = new ArrayList<>();
@@ -1868,7 +1935,9 @@ public class ScratchMVP {
         Runnable onPlay, onStop, onBack;
         GameRuntime runtime;
 
-        final Dimension size = new Dimension(900, 620);
+        JSpinner widthSpin, heightSpin;
+
+        final Dimension size;
         int border = 20;
         // Entidades actualmente presentes en el escenario (separadas de las plantillas del proyecto)
         final List<Entity> entities = new ArrayList<>();
@@ -1899,11 +1968,15 @@ public class ScratchMVP {
                 project.scriptsByEntity.put(e.id, cloneScripts(e.id));
             }
             selectedEntity = null;
+            if (widthSpin != null && heightSpin != null) {
+                widthSpin.setValue(size.width);
+                heightSpin.setValue(size.height);
+            }
             repaint();
         }
 
         StagePanel(Project p, Set<Integer> keysDown) {
-            this.project = p; this.keysDown = keysDown;
+            this.project = p; this.keysDown = keysDown; this.size = p.canvas;
             setLayout(new BorderLayout());
 
             // Top bar
@@ -1922,6 +1995,12 @@ public class ScratchMVP {
             bar.add(new JLabel("Borde:"));
             JSpinner borderSpin = new JSpinner(new SpinnerNumberModel(border, 0, 200, 5));
             bar.add(borderSpin);
+            bar.add(new JLabel("Ancho:"));
+            widthSpin = new JSpinner(new SpinnerNumberModel(size.width, 200, 1600, 20));
+            bar.add(widthSpin);
+            bar.add(new JLabel("Alto:"));
+            heightSpin = new JSpinner(new SpinnerNumberModel(size.height, 200, 1200, 20));
+            bar.add(heightSpin);
             add(bar, BorderLayout.NORTH);
 
             // Canvas
@@ -1933,6 +2012,16 @@ public class ScratchMVP {
             cv.addMouseListener(this);
             cv.addMouseMotionListener(this);
             add(cv, BorderLayout.CENTER);
+
+            ChangeListener szListener = e -> {
+                size.width = (int) widthSpin.getValue();
+                size.height = (int) heightSpin.getValue();
+                cv.setPreferredSize(size);
+                cv.revalidate();
+                repaint();
+            };
+            widthSpin.addChangeListener(szListener);
+            heightSpin.addChangeListener(szListener);
 
             btnBack.addActionListener(e -> {
                 playing = false;
