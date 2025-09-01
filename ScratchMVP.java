@@ -54,6 +54,7 @@ public class ScratchMVP {
         List<Entity> entities = new ArrayList<>();
         // scripts por entidad (raíces de eventos)
         Map<String, List<EventBlock>> scriptsByEntity = new HashMap<>();
+        Map<String, Double> globalVars = new HashMap<>();
         Dimension canvas = new Dimension(800, 600);
 
         Entity getById(String id) {
@@ -65,8 +66,8 @@ public class ScratchMVP {
     // ====== BLOQUES ======
     enum BlockKind { EVENT, ACTION }
 
-    enum EventType { ON_START, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_COLLIDE }
-    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, SPAWN_ENTITY, DELETE_ENTITY }
+    enum EventType { ON_START, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE }
+    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, SPAWN_ENTITY, DELETE_ENTITY }
 
     static abstract class Block {
         final String id = UUID.randomUUID().toString();
@@ -100,6 +101,8 @@ public class ScratchMVP {
                     return "Evento: Al tocar borde";
                 case ON_VAR_CHANGE:
                     return "Evento: Var " + args.getOrDefault("var","var") + " = " + args.getOrDefault("value",0);
+                case ON_GLOBAL_VAR_CHANGE:
+                    return "Evento: Var Global " + args.getOrDefault("var","var") + " = " + args.getOrDefault("value",0);
                 case ON_COLLIDE:
                     return "Evento: Colisión";
             }
@@ -117,7 +120,18 @@ public class ScratchMVP {
         @Override String title() {
             switch (type) {
                 case MOVE_BY:
-                    return "Acción: Mover (" + args.getOrDefault("dx", 5) + "," + args.getOrDefault("dy", 0) + ")";
+                    int dx = (int) args.getOrDefault("dx", 5);
+                    int dy = (int) args.getOrDefault("dy", 0);
+                    String dir;
+                    int pasos;
+                    if (Math.abs(dx) >= Math.abs(dy)) {
+                        dir = dx >= 0 ? "derecha" : "izquierda";
+                        pasos = Math.abs(dx);
+                    } else {
+                        dir = dy >= 0 ? "abajo" : "arriba";
+                        pasos = Math.abs(dy);
+                    }
+                    return "Acción: Mover " + dir + " " + pasos;
                 case SET_COLOR:
                     return "Acción: Color";
                 case SAY:
@@ -126,6 +140,10 @@ public class ScratchMVP {
                     return "Acción: Fijar " + args.getOrDefault("var", "var") + " a " + args.getOrDefault("value", 0);
                 case CHANGE_VAR:
                     return "Acción: Cambiar " + args.getOrDefault("var", "var") + " en " + args.getOrDefault("delta", 1);
+                case SET_GLOBAL_VAR:
+                    return "Acción: Fijar global " + args.getOrDefault("var", "var") + " a " + args.getOrDefault("value", 0);
+                case CHANGE_GLOBAL_VAR:
+                    return "Acción: Cambiar global " + args.getOrDefault("var", "var") + " en " + args.getOrDefault("delta", 1);
                 case WAIT:
                     return "Acción: Esperar " + args.getOrDefault("secs",1.0) + "s";
                 case ROTATE_BY:
@@ -181,6 +199,7 @@ public class ScratchMVP {
         long lastUpdateNs = 0;
         Map<String, Map<EventBlock, Long>> tickLastFire = new HashMap<>(); // por entidad -> evento -> tiempo última ejecución
         Map<String, Map<EventBlock, Double>> varLast = new HashMap<>();
+        Map<EventBlock, Double> globalVarLast = new HashMap<>();
 
         GameRuntime(Project p, StagePanel s, Set<Integer> keysDown) {
             this.project = p;
@@ -192,6 +211,7 @@ public class ScratchMVP {
             stop();
             tickLastFire.clear();
             varLast.clear();
+            globalVarLast.clear();
             // ON_START una vez
             for (Entity e : project.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(e.id, Collections.emptyList());
@@ -204,6 +224,10 @@ public class ScratchMVP {
                         String var = String.valueOf(ev.args.getOrDefault("var", "var"));
                         double cur = e.vars.getOrDefault(var, 0.0);
                         varLast.computeIfAbsent(e.id, k -> new HashMap<>()).put(ev, cur);
+                    } else if (ev.type == EventType.ON_GLOBAL_VAR_CHANGE) {
+                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        double cur = project.globalVars.getOrDefault(var, 0.0);
+                        globalVarLast.put(ev, cur);
                     }
                 }
             }
@@ -281,6 +305,15 @@ public class ScratchMVP {
                             triggerEvent(en, ev);
                         }
                         varLast.computeIfAbsent(en.id, k -> new HashMap<>()).put(ev, cur);
+                    } else if (ev.type == EventType.ON_GLOBAL_VAR_CHANGE) {
+                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        double target = Double.parseDouble(String.valueOf(ev.args.getOrDefault("value", 0)));
+                        double cur = project.globalVars.getOrDefault(var, 0.0);
+                        double prev = globalVarLast.getOrDefault(ev, cur);
+                        if (cur == target && prev != target) {
+                            triggerEvent(en, ev);
+                        }
+                        globalVarLast.put(ev, cur);
                     }
                 }
             }
@@ -397,6 +430,17 @@ public class ScratchMVP {
                     double delta = Double.parseDouble(String.valueOf(ab.args.getOrDefault("delta", 1)));
                     double cur = e.vars.getOrDefault(cvar, 0.0);
                     e.vars.put(cvar, cur + delta);
+                }
+                case SET_GLOBAL_VAR -> {
+                    String var = String.valueOf(ab.args.getOrDefault("var", "var"));
+                    double val = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
+                    project.globalVars.put(var, val);
+                }
+                case CHANGE_GLOBAL_VAR -> {
+                    String var = String.valueOf(ab.args.getOrDefault("var", "var"));
+                    double delta = Double.parseDouble(String.valueOf(ab.args.getOrDefault("delta", 1)));
+                    double cur = project.globalVars.getOrDefault(var, 0.0);
+                    project.globalVars.put(var, cur + delta);
                 }
                 case WAIT -> {
                     double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
@@ -558,8 +602,12 @@ public class ScratchMVP {
             JPanel left = new JPanel(new BorderLayout());
             left.setPreferredSize(new Dimension(280, 100));
             palettePanel = new PalettePanel();
+            JScrollPane paletteScroll = new JScrollPane(palettePanel,
+                    JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                    JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            paletteScroll.getVerticalScrollBar().setUnitIncrement(16);
             entityListPanel = new EntityListPanel(project);
-            left.add(palettePanel, BorderLayout.CENTER);
+            left.add(paletteScroll, BorderLayout.CENTER);
             left.add(entityListPanel, BorderLayout.SOUTH);
 
             // Center: Lienzo de scripts
@@ -764,11 +812,17 @@ public class ScratchMVP {
                 b.args.put("value", 0);
                 return b;
             }));
+            add(makeBtn("Var global alcanza...", () -> {
+                EventBlock b = new EventBlock(EventType.ON_GLOBAL_VAR_CHANGE);
+                b.args.put("var", "var");
+                b.args.put("value", 0);
+                return b;
+            }));
             add(makeBtn("Colisión", () -> new EventBlock(EventType.ON_COLLIDE)));
 
             add(Box.createVerticalStrut(10));
             add(section("Acciones"));
-            add(makeBtn("Mover (dx,dy)", () -> {
+            add(makeBtn("Mover...", () -> {
                 ActionBlock b = new ActionBlock(ActionType.MOVE_BY);
                 b.args.put("dx", 5); b.args.put("dy", 0);
                 return b;
@@ -780,14 +834,26 @@ public class ScratchMVP {
                 b.args.put("secs", 2.0);
                 return b;
             }));
-            add(makeBtn("Asignar var...", () -> {
+            add(makeBtn("Asignar var entidad...", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SET_VAR);
                 b.args.put("var", "var");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Cambiar var...", () -> {
+            add(makeBtn("Cambiar var entidad...", () -> {
                 ActionBlock b = new ActionBlock(ActionType.CHANGE_VAR);
+                b.args.put("var", "var");
+                b.args.put("delta", 1);
+                return b;
+            }));
+            add(makeBtn("Asignar var global...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.SET_GLOBAL_VAR);
+                b.args.put("var", "var");
+                b.args.put("value", 0);
+                return b;
+            }));
+            add(makeBtn("Cambiar var global...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.CHANGE_GLOBAL_VAR);
                 b.args.put("var", "var");
                 b.args.put("delta", 1);
                 return b;
@@ -886,10 +952,21 @@ public class ScratchMVP {
 
             BlockView bv = new BlockView(block, this);
             add(bv);
-            int bx = 20;
-            int by = 40 + getBlockCountFor(sel)*80;
+            Dimension ps = bv.getPreferredSize();
+            int bx = 20, by = 40;
+            outer:
+            for (int y=40; y<=getHeight()-ps.height; y+=80) {
+                for (int x=20; x<=getWidth()-ps.width; x+=200) {
+                    Rectangle r = new Rectangle(x, y, ps.width, ps.height);
+                    boolean overlap = false;
+                    for (BlockView existing : getViews(sel)) {
+                        if (r.intersects(existing.getBounds())) { overlap = true; break; }
+                    }
+                    if (!overlap) { bx = x; by = y; break outer; }
+                }
+            }
             bv.setLocation(bx, by);
-            bv.setSize(bv.getPreferredSize());
+            bv.setSize(ps);
             block.x = bx; block.y = by;
             getViews(sel).add(bv);
 
@@ -1176,8 +1253,9 @@ public class ScratchMVP {
                     int sel = JOptionPane.showOptionDialog(this, "Botón", "Botón", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, opts, opts[0]);
                     if (sel == 0) ev.args.put("button", MouseEvent.BUTTON1);
                     else if (sel == 1) ev.args.put("button", MouseEvent.BUTTON3);
-                } else if (ev.type == EventType.ON_VAR_CHANGE) {
-                    String var = JOptionPane.showInputDialog(this, "Variable:", ev.args.getOrDefault("var", "var"));
+                } else if (ev.type == EventType.ON_VAR_CHANGE || ev.type == EventType.ON_GLOBAL_VAR_CHANGE) {
+                    String varLabel = ev.type == EventType.ON_GLOBAL_VAR_CHANGE ? "Variable global:" : "Variable:";
+                    String var = JOptionPane.showInputDialog(this, varLabel, ev.args.getOrDefault("var", "var"));
                     String val = JOptionPane.showInputDialog(this, "Valor:", ev.args.getOrDefault("value", 0));
                     if (var != null && val != null) {
                         try {
@@ -1191,11 +1269,24 @@ public class ScratchMVP {
                 ActionBlock ab = (ActionBlock) block;
                 switch (ab.type) {
                     case MOVE_BY -> {
-                        String dx = JOptionPane.showInputDialog(this, "dx:", ab.args.getOrDefault("dx", 5));
-                        String dy = JOptionPane.showInputDialog(this, "dy:", ab.args.getOrDefault("dy", 0));
-                        if (dx != null && dy != null && dx.matches("-?\\d+") && dy.matches("-?\\d+")) {
-                            ab.args.put("dx", Integer.parseInt(dx));
-                            ab.args.put("dy", Integer.parseInt(dy));
+                        String[] dirs = {"Derecha","Izquierda","Arriba","Abajo"};
+                        int curDx = (int) ab.args.getOrDefault("dx", 5);
+                        int curDy = (int) ab.args.getOrDefault("dy", 0);
+                        int selDir;
+                        if (Math.abs(curDx) >= Math.abs(curDy)) selDir = curDx >= 0 ? 0 : 1; else selDir = curDy < 0 ? 2 : 3;
+                        selDir = Math.max(0, Math.min(selDir, 3));
+                        int dir = JOptionPane.showOptionDialog(this, "Dirección", "Dirección", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, dirs, dirs[selDir]);
+                        if (dir >= 0) {
+                            String pasos = JOptionPane.showInputDialog(this, "Pixeles:", Math.max(Math.abs(curDx), Math.abs(curDy)));
+                            if (pasos != null && pasos.matches("\\d+")) {
+                                int val = Integer.parseInt(pasos);
+                                switch (dir) {
+                                    case 0 -> { ab.args.put("dx", val); ab.args.put("dy", 0); }
+                                    case 1 -> { ab.args.put("dx", -val); ab.args.put("dy", 0); }
+                                    case 2 -> { ab.args.put("dx", 0); ab.args.put("dy", -val); }
+                                    case 3 -> { ab.args.put("dx", 0); ab.args.put("dy", val); }
+                                }
+                            }
                         }
                     }
                     case SET_COLOR -> {
@@ -1226,6 +1317,28 @@ public class ScratchMVP {
                     }
                     case CHANGE_VAR -> {
                         String var = JOptionPane.showInputDialog(this, "Variable:", ab.args.getOrDefault("var", "var"));
+                        String val = JOptionPane.showInputDialog(this, "Delta:", ab.args.getOrDefault("delta", 1));
+                        if (var != null && val != null) {
+                            try {
+                                double s = Double.parseDouble(val);
+                                ab.args.put("var", var);
+                                ab.args.put("delta", s);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                    case SET_GLOBAL_VAR -> {
+                        String var = JOptionPane.showInputDialog(this, "Variable global:", ab.args.getOrDefault("var", "var"));
+                        String val = JOptionPane.showInputDialog(this, "Valor:", ab.args.getOrDefault("value", 0));
+                        if (var != null && val != null) {
+                            try {
+                                double s = Double.parseDouble(val);
+                                ab.args.put("var", var);
+                                ab.args.put("value", s);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                    }
+                    case CHANGE_GLOBAL_VAR -> {
+                        String var = JOptionPane.showInputDialog(this, "Variable global:", ab.args.getOrDefault("var", "var"));
                         String val = JOptionPane.showInputDialog(this, "Delta:", ab.args.getOrDefault("delta", 1));
                         if (var != null && val != null) {
                             try {
@@ -1334,6 +1447,7 @@ public class ScratchMVP {
 
         final Dimension size = new Dimension(900, 620);
         Entity dragEntity = null;
+        Entity selectedEntity = null;
         Point dragOffset = null;
         boolean playing = false;
 
@@ -1347,7 +1461,12 @@ public class ScratchMVP {
             JButton btnBack = new JButton("◀ Volver al Editor");
             JButton btnPlay = new JButton("▶ Probar");
             JButton btnStop = new JButton("■ Detener");
-            bar.add(btnBack); bar.add(btnPlay); bar.add(btnStop);
+            JButton btnNewEntity = new JButton("Nueva Entidad");
+            JButton btnDelEntity = new JButton("Eliminar Entidad");
+            bar.add(btnBack);
+            bar.add(btnPlay); bar.add(btnStop);
+            bar.add(Box.createHorizontalStrut(20));
+            bar.add(btnNewEntity); bar.add(btnDelEntity);
             add(bar, BorderLayout.NORTH);
 
             // Canvas
@@ -1371,6 +1490,25 @@ public class ScratchMVP {
                 playing = false;
                 if (onStop != null) onStop.run();
                 repaint();
+            });
+            btnNewEntity.addActionListener(e -> {
+                if (playing) return;
+                Entity en = new Entity();
+                en.name = "Entidad " + (project.entities.size() + 1);
+                project.entities.add(en);
+                project.scriptsByEntity.put(en.id, new ArrayList<>());
+                selectedEntity = en;
+                repaint();
+            });
+            btnDelEntity.addActionListener(e -> {
+                if (playing) return;
+                if (selectedEntity != null) {
+                    project.entities.remove(selectedEntity);
+                    project.scriptsByEntity.remove(selectedEntity.id);
+                    if (dragEntity == selectedEntity) dragEntity = null;
+                    selectedEntity = null;
+                    repaint();
+                }
             });
         }
 
@@ -1426,6 +1564,11 @@ public class ScratchMVP {
                 g2.setTransform(old);
                 g2.setColor(Color.DARK_GRAY);
                 g2.drawString(e.name, (int)e.t.x + 4, (int)e.t.y - 4);
+                if (e == selectedEntity) {
+                    g2.setColor(Color.RED);
+                    g2.drawRect((int)e.t.x - 2, (int)e.t.y - 2,
+                            (int)e.a.width + 4, (int)e.a.height + 4);
+                }
 
                 if (e.sayText != null) {
                     g2.setColor(new Color(255,255,255,230));
@@ -1455,15 +1598,18 @@ public class ScratchMVP {
                 return;
             }
             // buscar entidad bajo ratón (de arriba hacia abajo)
+            selectedEntity = null;
             List<Entity> rev = new ArrayList<>(project.entities);
             Collections.reverse(rev);
             for (Entity en : rev) {
                 if (hit(en, e.getPoint())) {
                     dragEntity = en;
+                    selectedEntity = en;
                     dragOffset = new Point((int)(e.getX() - en.t.x), (int)(e.getY() - en.t.y));
                     break;
                 }
             }
+            repaint();
         }
         @Override public void mouseReleased(MouseEvent e) { dragEntity = null; dragOffset = null; }
         @Override public void mouseEntered(MouseEvent e) {}
