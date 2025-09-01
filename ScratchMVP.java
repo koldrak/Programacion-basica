@@ -449,8 +449,8 @@ public class ScratchMVP {
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_EDGE) {
                         if (en.t.x <= 0 || en.t.y <= 0 ||
-                                en.t.x + en.a.width >= stage.size.width ||
-                                en.t.y + en.a.height >= stage.size.height) {
+                                en.t.x + en.a.width >= stage.stageWidth() ||
+                                en.t.y + en.a.height >= stage.stageHeight()) {
                             triggerEvent(en, ev);
                         }
                     }
@@ -570,8 +570,8 @@ public class ScratchMVP {
                     int dy = (int) ab.args.getOrDefault("dy", 0);
                     e.t.x += dx;
                     e.t.y += dy;
-                    e.t.x = Math.max(0, Math.min(e.t.x, stage.size.width - e.a.width));
-                    e.t.y = Math.max(0, Math.min(e.t.y, stage.size.height - e.a.height));
+                    e.t.x = Math.max(0, Math.min(e.t.x, stage.stageWidth() - e.a.width));
+                    e.t.y = Math.max(0, Math.min(e.t.y, stage.stageHeight() - e.a.height));
                 }
                 case SET_COLOR -> {
                     Color chosenColor = (Color) ab.args.getOrDefault("color", new Color(0xE74C3C));
@@ -702,6 +702,7 @@ public class ScratchMVP {
             stagePanel = new StagePanel(project, keysDown);
             editorPanel = new EditorPanel(project, () -> {
                 // al pulsar "Ir al Escenario"
+                stagePanel.loadFromProject();
                 cards.show(root, "stage");
                 stagePanel.requestFocusInWindow();
                 stagePanel.repaint();
@@ -791,13 +792,18 @@ public class ScratchMVP {
 
             // Listeners
             btnNewEntity.addActionListener(e -> {
-                Entity en = new Entity();
-                en.name = "Entidad " + (project.entities.size() + 1);
-                project.entities.add(en);
-                project.scriptsByEntity.put(en.id, new ArrayList<>());
-                entityListPanel.refresh();
-                entityListPanel.select(en);
-                scriptCanvas.repaint();
+                String name = JOptionPane.showInputDialog(this, "Nombre de la entidad", "Entidad " + (project.entities.size() + 1));
+                if (name != null) {
+                    name = name.trim();
+                    if (name.isEmpty()) name = "Entidad " + (project.entities.size() + 1);
+                    Entity en = new Entity();
+                    en.name = name;
+                    project.entities.add(en);
+                    project.scriptsByEntity.put(en.id, new ArrayList<>());
+                    entityListPanel.refresh();
+                    entityListPanel.select(en);
+                    scriptCanvas.repaint();
+                }
             });
 
             btnDelEntity.addActionListener(e -> {
@@ -1071,27 +1077,57 @@ public class ScratchMVP {
         }
 
         Polygon promptPolygon() {
-            String txt = JOptionPane.showInputDialog(this, "Puntos x,y separados por espacio (ej: 0,0 60,0 30,40)");
-            if (txt == null || txt.trim().isEmpty()) return null;
-            String[] parts = txt.trim().split("\\s+");
-            Polygon p = new Polygon();
-            for (String part : parts) {
-                String[] xy = part.split(",");
-                if (xy.length == 2) {
-                    try {
-                        int x = Integer.parseInt(xy[0]);
-                        int y = Integer.parseInt(xy[1]);
-                        p.addPoint(x, y);
-                    } catch (NumberFormatException ignored) {}
+            class DrawPanel extends JPanel implements MouseListener {
+                final java.util.List<Point> pts = new ArrayList<>();
+                DrawPanel() {
+                    setPreferredSize(new Dimension(300,300));
+                    setBackground(Color.WHITE);
+                    addMouseListener(this);
                 }
+                @Override protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    Graphics2D g2 = (Graphics2D) g;
+                    g2.setColor(Color.BLACK);
+                    for (int i=0;i<pts.size();i++) {
+                        Point p = pts.get(i);
+                        g2.fillOval(p.x-3,p.y-3,6,6);
+                        if (i>0) {
+                            Point q = pts.get(i-1);
+                            g2.drawLine(q.x,q.y,p.x,p.y);
+                        }
+                    }
+                }
+                @Override public void mouseClicked(MouseEvent e) { pts.add(e.getPoint()); repaint(); }
+                @Override public void mousePressed(MouseEvent e) {}
+                @Override public void mouseReleased(MouseEvent e) {}
+                @Override public void mouseEntered(MouseEvent e) {}
+                @Override public void mouseExited(MouseEvent e) {}
             }
-            if (p.npoints < 3) return null;
-            Rectangle b = p.getBounds();
-            for (int i = 0; i < p.npoints; i++) {
-                p.xpoints[i] -= b.x + b.width/2;
-                p.ypoints[i] -= b.y + b.height/2;
-            }
-            return p;
+
+            DrawPanel dp = new DrawPanel();
+            JButton ok = new JButton("Aceptar");
+            JButton cancel = new JButton("Cancelar");
+            final Polygon[] res = new Polygon[1];
+            final JDialog dlg = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "Dibujar polígono", true);
+            ok.addActionListener(ev -> {
+                if (dp.pts.size() >= 3) {
+                    Polygon p = new Polygon();
+                    for (Point pt : dp.pts) p.addPoint(pt.x, pt.y);
+                    Rectangle b = p.getBounds();
+                    for (int i = 0; i < p.npoints; i++) {
+                        p.xpoints[i] -= b.x; p.ypoints[i] -= b.y;
+                    }
+                    res[0] = p; dlg.dispose();
+                } else {
+                    JOptionPane.showMessageDialog(dp, "Se requieren al menos 3 puntos");
+                }
+            });
+            cancel.addActionListener(ev -> { res[0] = null; dlg.dispose(); });
+            JPanel bp = new JPanel(); bp.add(ok); bp.add(cancel);
+            dlg.getContentPane().add(dp, BorderLayout.CENTER);
+            dlg.getContentPane().add(bp, BorderLayout.SOUTH);
+            dlg.pack(); dlg.setLocationRelativeTo(this); dlg.setVisible(true);
+            return res[0];
         }
     }
 
@@ -1833,8 +1869,11 @@ public class ScratchMVP {
         GameRuntime runtime;
 
         final Dimension size = new Dimension(900, 620);
+        int border = 20;
         // Entidades actualmente presentes en el escenario (separadas de las plantillas del proyecto)
         final List<Entity> entities = new ArrayList<>();
+        // Respaldo de scripts del editor para restaurar al volver
+        Map<String, List<EventBlock>> editorScriptBackup = new HashMap<>();
         Entity dragEntity = null;
         Entity selectedEntity = null;
         Point dragOffset = null;
@@ -1843,6 +1882,25 @@ public class ScratchMVP {
         final List<Entity> snapshot = new ArrayList<>();
         Map<String, List<EventBlock>> scriptSnapshot = new HashMap<>();
         Map<String, Double> globalVarSnapshot = new HashMap<>();
+
+        int stageWidth() { return size.width - border * 2; }
+        int stageHeight() { return size.height - border * 2; }
+
+        void loadFromProject() {
+            editorScriptBackup.clear();
+            for (Map.Entry<String, List<EventBlock>> entry : project.scriptsByEntity.entrySet()) {
+                List<EventBlock> copy = new ArrayList<>();
+                for (EventBlock ev : entry.getValue()) copy.add((EventBlock) cloneBlock(ev));
+                editorScriptBackup.put(entry.getKey(), copy);
+            }
+            entities.clear();
+            for (Entity e : project.entities) {
+                entities.add(cloneEntity(e, true));
+                project.scriptsByEntity.put(e.id, cloneScripts(e.id));
+            }
+            selectedEntity = null;
+            repaint();
+        }
 
         StagePanel(Project p, Set<Integer> keysDown) {
             this.project = p; this.keysDown = keysDown;
@@ -1860,6 +1918,10 @@ public class ScratchMVP {
             bar.add(btnPlay); bar.add(btnStop);
             bar.add(Box.createHorizontalStrut(20));
             bar.add(btnAddEntity); bar.add(btnDelEntity);
+            bar.add(Box.createHorizontalStrut(20));
+            bar.add(new JLabel("Borde:"));
+            JSpinner borderSpin = new JSpinner(new SpinnerNumberModel(border, 0, 200, 5));
+            bar.add(borderSpin);
             add(bar, BorderLayout.NORTH);
 
             // Canvas
@@ -1879,12 +1941,35 @@ public class ScratchMVP {
                 deleteMode = false;
                 btnDelEntity.setBackground(null);
                 btnDelEntity.setOpaque(false);
-                // limpiar entidades temporales del escenario
-                for (Entity en : new ArrayList<>(entities)) {
-                    project.scriptsByEntity.remove(en.id);
+                for (Entity en : entities) {
+                    Entity orig = project.getById(en.id);
+                    if (orig != null) {
+                        orig.t.x = en.t.x;
+                        orig.t.y = en.t.y;
+                        orig.t.rot = en.t.rot;
+                        orig.t.scaleX = en.t.scaleX;
+                        orig.t.scaleY = en.t.scaleY;
+                        orig.a.shape = en.a.shape;
+                        orig.a.color = en.a.color;
+                        orig.a.width = en.a.width;
+                        orig.a.height = en.a.height;
+                        orig.a.opacity = en.a.opacity;
+                        if (en.a.customPolygon != null) {
+                            orig.a.customPolygon = new Polygon(en.a.customPolygon.xpoints, en.a.customPolygon.ypoints, en.a.customPolygon.npoints);
+                        } else {
+                            orig.a.customPolygon = null;
+                        }
+                        orig.vars.clear();
+                        orig.vars.putAll(en.vars);
+                    } else {
+                        project.scriptsByEntity.remove(en.id);
+                    }
                 }
                 entities.clear();
                 selectedEntity = null;
+                project.scriptsByEntity.clear();
+                project.scriptsByEntity.putAll(editorScriptBackup);
+                editorScriptBackup.clear();
                 if (onBack!=null) onBack.run();
             });
             btnPlay.addActionListener(e -> {
@@ -1938,6 +2023,10 @@ public class ScratchMVP {
                     Entity tpl = project.entities.stream().filter(en->en.name.equals(selName)).findFirst().orElse(null);
                     if (tpl != null) {
                         Entity clone = cloneEntity(tpl);
+                        String newName = JOptionPane.showInputDialog(this, "Nombre de la entidad", tpl.name);
+                        if (newName != null && !newName.trim().isEmpty()) {
+                            clone.name = newName.trim();
+                        }
                         entities.add(clone);
                         project.scriptsByEntity.put(clone.id, cloneScripts(tpl.id));
                         selectedEntity = clone;
@@ -1954,6 +2043,17 @@ public class ScratchMVP {
                     btnDelEntity.setBackground(null);
                     btnDelEntity.setOpaque(false);
                 }
+            });
+
+            borderSpin.addChangeListener(e -> {
+                border = ((Number) borderSpin.getValue()).intValue();
+                int max = Math.min(size.width, size.height) / 2;
+                if (border > max) { border = max; borderSpin.setValue(border); }
+                for (Entity en : entities) {
+                    en.t.x = Math.max(0, Math.min(en.t.x, stageWidth() - en.a.width));
+                    en.t.y = Math.max(0, Math.min(en.t.y, stageHeight() - en.a.height));
+                }
+                repaint();
             });
         }
 
@@ -2030,14 +2130,23 @@ public class ScratchMVP {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-                // fondo
-                g2.setColor(new Color(0xF4F6F7));
+                // zona fuera del escenario
+                g2.setColor(Color.GRAY);
                 g2.fillRect(0,0,getWidth(),getHeight());
+
+                // trasladar a área del escenario
+                g2.translate(border, border);
+                int w = stageWidth();
+                int h = stageHeight();
+
+                // fondo del escenario
+                g2.setColor(new Color(0xF4F6F7));
+                g2.fillRect(0,0,w,h);
 
                 // rejilla ligera
                 g2.setColor(new Color(0xEAECEE));
-                for (int x=0; x<getWidth(); x+=40) g2.drawLine(x,0,x,getHeight());
-                for (int y=0; y<getHeight(); y+=40) g2.drawLine(0,y,getWidth(),y);
+                for (int x=0; x<w; x+=40) g2.drawLine(x,0,x,h);
+                for (int y=0; y<h; y+=40) g2.drawLine(0,y,w,y);
 
                 g2.setColor(Color.DARK_GRAY);
                 int gy = 15;
@@ -2099,14 +2208,19 @@ public class ScratchMVP {
         @Override public void mouseClicked(MouseEvent e) {}
         @Override public void mousePressed(MouseEvent e) {
             if (playing) {
-                if (runtime != null) runtime.handleMouseEvent(e);
+                if (runtime != null) {
+                    MouseEvent me = new MouseEvent(e.getComponent(), e.getID(), e.getWhen(), e.getModifiersEx(),
+                            e.getX() - border, e.getY() - border, e.getClickCount(), e.isPopupTrigger(), e.getButton());
+                    runtime.handleMouseEvent(me);
+                }
                 return;
             }
+            Point p = new Point(e.getX() - border, e.getY() - border);
             if (deleteMode) {
                 List<Entity> revDel = new ArrayList<>(entities);
                 Collections.reverse(revDel);
                 for (Entity en : revDel) {
-                    if (hit(en, e.getPoint())) {
+                    if (hit(en, p)) {
                         entities.remove(en);
                         project.scriptsByEntity.remove(en.id);
                         if (selectedEntity == en) selectedEntity = null;
@@ -2122,10 +2236,10 @@ public class ScratchMVP {
             List<Entity> rev = new ArrayList<>(entities);
             Collections.reverse(rev);
             for (Entity en : rev) {
-                if (hit(en, e.getPoint())) {
+                if (hit(en, p)) {
                     dragEntity = en;
                     selectedEntity = en;
-                    dragOffset = new Point((int)(e.getX() - en.t.x), (int)(e.getY() - en.t.y));
+                    dragOffset = new Point((int)(p.x - en.t.x), (int)(p.y - en.t.y));
                     break;
                 }
             }
@@ -2137,10 +2251,10 @@ public class ScratchMVP {
         @Override public void mouseDragged(MouseEvent e) {
             if (playing) return;
             if (dragEntity != null && dragOffset != null) {
-                dragEntity.t.x = e.getX() - dragOffset.x;
-                dragEntity.t.y = e.getY() - dragOffset.y;
-                dragEntity.t.x = Math.max(0, Math.min(dragEntity.t.x, size.width - dragEntity.a.width));
-                dragEntity.t.y = Math.max(0, Math.min(dragEntity.t.y, size.height - dragEntity.a.height));
+                dragEntity.t.x = e.getX() - border - dragOffset.x;
+                dragEntity.t.y = e.getY() - border - dragOffset.y;
+                dragEntity.t.x = Math.max(0, Math.min(dragEntity.t.x, stageWidth() - dragEntity.a.width));
+                dragEntity.t.y = Math.max(0, Math.min(dragEntity.t.y, stageHeight() - dragEntity.a.height));
                 repaint();
             }
         }
