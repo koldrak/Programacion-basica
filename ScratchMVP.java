@@ -52,6 +52,10 @@ public class ScratchMVP {
         // Runtime UI (globo de texto)
         String sayText = null;
         long sayUntilMs = 0;
+
+        // Movimiento gradual hacia otra entidad
+        String moveTargetId = null;
+        double moveSpeed = 0;
     }
 
     static class Project implements Serializable {
@@ -375,6 +379,7 @@ public class ScratchMVP {
         Map<String, Map<EventBlock, Long>> tickLastFire = new HashMap<>(); // por entidad -> evento -> tiempo última ejecución
         Map<String, Map<EventBlock, Double>> varLast = new HashMap<>();
         Map<EventBlock, Double> globalVarLast = new HashMap<>();
+        final List<Runnable> pendingOps = new ArrayList<>();
 
         GameRuntime(Project p, StagePanel s, Set<Integer> keysDown) {
             this.project = p;
@@ -388,7 +393,7 @@ public class ScratchMVP {
             varLast.clear();
             globalVarLast.clear();
             // ON_START una vez
-            for (Entity e : stage.entities) {
+            for (Entity e : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(e.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_START || ev.type == EventType.ON_APPEAR) {
@@ -425,8 +430,33 @@ public class ScratchMVP {
 
             long nowMs = System.currentTimeMillis();
 
+            // Actualizar movimiento gradual hacia entidades objetivo
+            for (Entity en : new ArrayList<>(stage.entities)) {
+                if (en.moveTargetId != null) {
+                    Entity target = new ArrayList<>(stage.entities).stream()
+                            .filter(t -> t.id.equals(en.moveTargetId))
+                            .findFirst().orElse(null);
+                    if (target == null) {
+                        en.moveTargetId = null;
+                    } else {
+                        double dx = target.t.x - en.t.x;
+                        double dy = target.t.y - en.t.y;
+                        double dist = Math.hypot(dx, dy);
+                        double step = en.moveSpeed * dt;
+                        if (dist <= step) {
+                            en.t.x = target.t.x;
+                            en.t.y = target.t.y;
+                            en.moveTargetId = null;
+                        } else if (dist > 0) {
+                            en.t.x += dx / dist * step;
+                            en.t.y += dy / dist * step;
+                        }
+                    }
+                }
+            }
+
             // ON_TICK
-            for (Entity en : stage.entities) {
+            for (Entity en : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_TICK) {
@@ -441,7 +471,7 @@ public class ScratchMVP {
             }
 
             // ON_KEY_DOWN (se dispara cada frame si la tecla está presionada)
-            for (Entity en : stage.entities) {
+            for (Entity en : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_KEY_DOWN) {
@@ -456,7 +486,7 @@ public class ScratchMVP {
             // ON_EDGE_TOUCH
             Rectangle2D stageRect = new Rectangle2D.Double(0, 0, stage.stageWidth(), stage.stageHeight());
             Area stageBorder = new Area(new BasicStroke(1f).createStrokedShape(stageRect));
-            for (Entity en : stage.entities) {
+            for (Entity en : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_EDGE) {
@@ -477,7 +507,7 @@ public class ScratchMVP {
             }
 
             // ON_VAR_CHANGE / GLOBAL / WHILE
-            for (Entity en : stage.entities) {
+            for (Entity en : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_VAR_CHANGE) {
@@ -523,13 +553,13 @@ public class ScratchMVP {
             }
 
             // ON_COLLIDE
-            for (Entity en : stage.entities) {
+            for (Entity en : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_COLLIDE) {
                         @SuppressWarnings("unchecked")
                         java.util.List<String> ids = (java.util.List<String>) ev.args.get("targetIds");
-                        for (Entity other : stage.entities) {
+                        for (Entity other : new ArrayList<>(stage.entities)) {
                             if (other == en) continue;
                             if (ids != null && !ids.isEmpty() && !ids.contains(other.id)) continue;
                             if (collides(en, other)) {
@@ -543,10 +573,16 @@ public class ScratchMVP {
 
             // limpiar "decir" expirado
             long t = System.currentTimeMillis();
-            for (Entity en : stage.entities) {
+            for (Entity en : new ArrayList<>(stage.entities)) {
                 if (en.sayText != null && t > en.sayUntilMs) {
                     en.sayText = null;
                 }
+            }
+
+            while (!pendingOps.isEmpty()) {
+                List<Runnable> ops = new ArrayList<>(pendingOps);
+                pendingOps.clear();
+                for (Runnable op : ops) op.run();
             }
 
             stage.repaint();
@@ -665,20 +701,21 @@ public class ScratchMVP {
                     }
                 }
                 case MOVE_TO_ENTITY -> {
-                    String targetName = (String) ab.args.get("targetName");
-                    Entity nearest = null;
-                    double best = Double.MAX_VALUE;
-                    for (Entity other : stage.entities) {
-                        if (other == e) continue;
-                        if (targetName != null && !targetName.equals(other.name)) continue;
-                        double dx = other.t.x - e.t.x;
-                        double dy = other.t.y - e.t.y;
-                        double d = Math.hypot(dx, dy);
-                        if (d < best) { best = d; nearest = other; }
+                    String targetId = (String) ab.args.get("targetId");
+                    Entity target = targetId == null ? null : new ArrayList<>(stage.entities).stream()
+                            .filter(o -> o.id.equals(targetId)).findFirst().orElse(null);
+                    if (target == null) {
+                        String targetName = (String) ab.args.get("targetName");
+                        for (Entity other : new ArrayList<>(stage.entities)) {
+                            if (other == e) continue;
+                            if (targetName != null && !targetName.equals(other.name)) continue;
+                            target = other;
+                            break;
+                        }
                     }
-                    if (nearest != null) {
-                        e.t.x = nearest.t.x;
-                        e.t.y = nearest.t.y;
+                    if (target != null) {
+                        e.moveTargetId = target.id;
+                        e.moveSpeed = Double.parseDouble(String.valueOf(ab.args.getOrDefault("speed", 100.0)));
                     }
                 }
                 case SPAWN_ENTITY -> {
@@ -686,18 +723,23 @@ public class ScratchMVP {
                     Entity tpl = tplId != null ? project.getById(tplId) : null;
                     if (tpl == null) tpl = e;
                     Entity clone = stage.cloneEntity(tpl);
-                    stage.entities.add(clone);
-                    project.scriptsByEntity.put(clone.id, stage.cloneScripts(tpl.id));
-                    List<EventBlock> roots = project.scriptsByEntity.getOrDefault(clone.id, Collections.emptyList());
-                    for (EventBlock ev : roots) if (ev.type == EventType.ON_APPEAR) triggerEvent(clone, ev);
+                    List<EventBlock> scripts = stage.cloneScripts(tpl.id);
+                    pendingOps.add(() -> {
+                        stage.entities.add(clone);
+                        project.scriptsByEntity.put(clone.id, scripts);
+                        List<EventBlock> roots = project.scriptsByEntity.getOrDefault(clone.id, Collections.emptyList());
+                        for (EventBlock ev : roots) if (ev.type == EventType.ON_APPEAR) triggerEvent(clone, ev);
+                    });
                 }
                 case DELETE_ENTITY -> {
                     String targetId = (String) ab.args.get("targetId");
-                    Entity target = targetId == null ? e : stage.entities.stream()
+                    Entity target = targetId == null ? e : new ArrayList<>(stage.entities).stream()
                             .filter(en -> en.id.equals(targetId)).findFirst().orElse(null);
                     if (target != null) {
-                        stage.entities.remove(target);
-                        project.scriptsByEntity.remove(target.id);
+                        pendingOps.add(() -> {
+                            stage.entities.remove(target);
+                            project.scriptsByEntity.remove(target.id);
+                        });
                     }
                     if (target == e) {
                         return false;
@@ -709,7 +751,7 @@ public class ScratchMVP {
 
         void handleMouseEvent(MouseEvent e) {
             Point p = e.getPoint();
-            for (Entity en : stage.entities) {
+            for (Entity en : new ArrayList<>(stage.entities)) {
                 if (!contains(en, p)) continue;
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
@@ -1909,9 +1951,13 @@ public class ScratchMVP {
                         if (!names.contains(currentName)) names.add(0, currentName);
                         JSpinner entSpin = new JSpinner(new SpinnerListModel(names));
                         entSpin.setValue(currentName);
-                        JPanel pan = new JPanel(new GridLayout(1,2));
+                        double curSpeed = Double.parseDouble(String.valueOf(ab.args.getOrDefault("speed", 100.0)));
+                        JSpinner speedSpin = new JSpinner(new SpinnerNumberModel(curSpeed, 1.0, 1000.0, 10.0));
+                        JPanel pan = new JPanel(new GridLayout(2,2));
                         pan.add(new JLabel("Entidad"));
                         pan.add(entSpin);
+                        pan.add(new JLabel("Velocidad"));
+                        pan.add(speedSpin);
                         int r = JOptionPane.showConfirmDialog(this, pan, "Mover a entidad", JOptionPane.OK_CANCEL_OPTION);
                         if (r == JOptionPane.OK_OPTION) {
                             String name = (String) entSpin.getValue();
@@ -1920,6 +1966,7 @@ public class ScratchMVP {
                             if (tpl != null) {
                                 ab.args.put("targetId", tpl.id);
                                 ab.args.put("targetName", tpl.name);
+                                ab.args.put("speed", ((Number) speedSpin.getValue()).doubleValue());
                             }
                         }
                     }
