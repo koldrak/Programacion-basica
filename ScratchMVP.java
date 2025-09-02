@@ -220,6 +220,8 @@ public class ScratchMVP {
     static class ActionBlock extends Block {
         ActionType type;
         Map<String, Object> args = new HashMap<>(); // dx,dy,color,text,duration
+        // ramas adicionales (p.ej. opciones de Aleatorio)
+        List<Block> extraNext = new ArrayList<>();
 
         ActionBlock(ActionType t) { this.type = t; }
 
@@ -450,13 +452,22 @@ public class ScratchMVP {
             }
 
             // ON_EDGE_TOUCH
+            Rectangle2D stageRect = new Rectangle2D.Double(0, 0, stage.stageWidth(), stage.stageHeight());
+            Area stageBorder = new Area(new BasicStroke(1f).createStrokedShape(stageRect));
             for (Entity en : stage.entities) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
                 for (EventBlock ev : roots) {
                     if (ev.type == EventType.ON_EDGE) {
-                        if (en.t.x <= 0 || en.t.y <= 0 ||
-                                en.t.x + en.a.width >= stage.stageWidth() ||
-                                en.t.y + en.a.height >= stage.stageHeight()) {
+                        Shape sh = buildShape(en);
+                        Area outside = new Area(sh);
+                        outside.subtract(new Area(stageRect));
+                        if (!outside.isEmpty()) {
+                            triggerEvent(en, ev);
+                            continue;
+                        }
+                        Area edgeHit = new Area(sh);
+                        edgeHit.intersect(stageBorder);
+                        if (!edgeHit.isEmpty()) {
                             triggerEvent(en, ev);
                         }
                     }
@@ -547,9 +558,14 @@ public class ScratchMVP {
         }
 
         boolean collides(Entity a, Entity b) {
-            Area A = new Area(buildShape(a));
-            A.intersect(new Area(buildShape(b)));
-            return !A.isEmpty();
+            Shape sa = buildShape(a);
+            Shape sb = buildShape(b);
+            Area inter = new Area(sa);
+            inter.intersect(new Area(sb));
+            if (!inter.isEmpty()) return true;
+            Area edgeA = new Area(new BasicStroke(1f).createStrokedShape(sa));
+            edgeA.intersect(new Area(new BasicStroke(1f).createStrokedShape(sb)));
+            return !edgeA.isEmpty();
         }
 
         boolean contains(Entity e, Point p) {
@@ -576,8 +592,7 @@ public class ScratchMVP {
                     int dy = (int) ab.args.getOrDefault("dy", 0);
                     e.t.x += dx;
                     e.t.y += dy;
-                    e.t.x = Math.max(0, Math.min(e.t.x, stage.stageWidth() - e.a.width));
-                    e.t.y = Math.max(0, Math.min(e.t.y, stage.stageHeight() - e.a.height));
+                    stage.clampEntity(e);
                 }
                 case SET_COLOR -> {
                     Color chosenColor = (Color) ab.args.getOrDefault("color", new Color(0xE74C3C));
@@ -642,17 +657,10 @@ public class ScratchMVP {
                     e.a.opacity = Math.max(0, Math.min(1, e.a.opacity + delta));
                 }
                 case RANDOM -> {
-                    List<ActionBlock> options = new ArrayList<>();
-                    Block cur = ab.next;
-                    while (cur instanceof ActionBlock) {
-                        options.add((ActionBlock) cur);
-                        cur = cur.next;
+                    if (!ab.extraNext.isEmpty()) {
+                        Block chosen = ab.extraNext.get(new Random().nextInt(ab.extraNext.size()));
+                        executeChain(e, chosen);
                     }
-                    if (!options.isEmpty()) {
-                        ActionBlock chosen = options.get(new Random().nextInt(options.size()));
-                        executeAction(e, chosen);
-                    }
-                    return false;
                 }
                 case MOVE_TO_ENTITY -> {
                     String targetName = (String) ab.args.get("targetName");
@@ -1420,6 +1428,9 @@ public class ScratchMVP {
             v.setLocation(b.x, b.y);
             v.setSize(v.getPreferredSize());
             list.add(v);
+            if (b instanceof ActionBlock ab && ab.type == ActionType.RANDOM) {
+                for (Block extra : ab.extraNext) addRecursive(extra, list);
+            }
             if (b.next != null) {
                 addRecursive(b.next, list);
             }
@@ -1450,6 +1461,18 @@ public class ScratchMVP {
                         g2.drawLine(x1, y1, x2, y2);
                     }
                 }
+                if (blk instanceof ActionBlock ab && ab.type == ActionType.RANDOM) {
+                    for (Block extra : ab.extraNext) {
+                        BlockView child = findView(extra);
+                        if (child != null) {
+                            int x1 = v.getX() + v.getWidth()/2;
+                            int y1 = v.getY() + v.getHeight();
+                            int x2 = child.getX() + child.getWidth()/2;
+                            int y2 = child.getY();
+                            g2.drawLine(x1, y1, x2, y2);
+                        }
+                    }
+                }
             }
             g2.dispose();
         }
@@ -1466,6 +1489,14 @@ public class ScratchMVP {
         void detachLinks(Block b, Block target) {
             if (b == null) return;
             if (b.next == target) b.next = null;
+            if (b instanceof EventBlock ev) {
+                ev.extraNext.remove(target);
+                for (Block extra : new ArrayList<>(ev.extraNext)) detachLinks(extra, target);
+            }
+            if (b instanceof ActionBlock ab && ab.type == ActionType.RANDOM) {
+                ab.extraNext.remove(target);
+                for (Block extra : new ArrayList<>(ab.extraNext)) detachLinks(extra, target);
+            }
             detachLinks(b.next, target);
         }
 
@@ -1491,9 +1522,13 @@ public class ScratchMVP {
             }
             if (target != null) {
                 detach(candidate);
-                Block tail = target.block;
-                while (tail.next != null) tail = tail.next;
-                tail.next = candidate.block;
+                if (target.block instanceof ActionBlock ab && ab.type == ActionType.RANDOM) {
+                    ab.extraNext.add(candidate.block);
+                } else {
+                    Block tail = target.block;
+                    while (tail.next != null) tail = tail.next;
+                    tail.next = candidate.block;
+                }
                 repaint();
             }
         }
@@ -1955,6 +1990,18 @@ public class ScratchMVP {
         int stageWidth() { return size.width - border * 2; }
         int stageHeight() { return size.height - border * 2; }
 
+        // Ajusta la entidad para que su forma completa permanezca dentro del escenario
+        void clampEntity(Entity e) {
+            Rectangle2D b = buildShape(e).getBounds2D();
+            double dx = 0, dy = 0;
+            if (b.getMinX() < 0) dx = -b.getMinX();
+            else if (b.getMaxX() > stageWidth()) dx = stageWidth() - b.getMaxX();
+            if (b.getMinY() < 0) dy = -b.getMinY();
+            else if (b.getMaxY() > stageHeight()) dy = stageHeight() - b.getMaxY();
+            e.t.x += dx;
+            e.t.y += dy;
+        }
+
         void loadFromProject() {
             editorScriptBackup.clear();
             for (Map.Entry<String, List<EventBlock>> entry : project.scriptsByEntity.entrySet()) {
@@ -2139,8 +2186,7 @@ public class ScratchMVP {
                 int max = Math.min(size.width, size.height) / 2;
                 if (border > max) { border = max; borderSpin.setValue(border); }
                 for (Entity en : entities) {
-                    en.t.x = Math.max(0, Math.min(en.t.x, stageWidth() - en.a.width));
-                    en.t.y = Math.max(0, Math.min(en.t.y, stageHeight() - en.a.height));
+                    clampEntity(en);
                 }
                 repaint();
             });
@@ -2189,6 +2235,9 @@ public class ScratchMVP {
                 ActionBlock ab = (ActionBlock) b;
                 ActionBlock ab2 = new ActionBlock(ab.type);
                 ab2.args.putAll(ab.args);
+                if (ab.type == ActionType.RANDOM) {
+                    for (Block extra : ab.extraNext) ab2.extraNext.add(cloneBlock(extra));
+                }
                 copy = ab2;
             } else {
                 copy = null;
@@ -2342,8 +2391,7 @@ public class ScratchMVP {
             if (dragEntity != null && dragOffset != null) {
                 dragEntity.t.x = e.getX() - border - dragOffset.x;
                 dragEntity.t.y = e.getY() - border - dragOffset.y;
-                dragEntity.t.x = Math.max(0, Math.min(dragEntity.t.x, stageWidth() - dragEntity.a.width));
-                dragEntity.t.y = Math.max(0, Math.min(dragEntity.t.y, stageHeight() - dragEntity.a.height));
+                clampEntity(dragEntity);
                 repaint();
             }
         }
