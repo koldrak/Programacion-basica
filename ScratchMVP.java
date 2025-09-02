@@ -568,9 +568,14 @@ public class ScratchMVP {
                     if (ev.type == EventType.ON_COLLIDE) {
                         @SuppressWarnings("unchecked")
                         java.util.List<String> ids = (java.util.List<String>) ev.args.get("targetIds");
+                        @SuppressWarnings("unchecked")
+                        java.util.List<String> names = (java.util.List<String>) ev.args.get("targetNames");
                         for (Entity other : new ArrayList<>(stage.entities)) {
                             if (other == en) continue;
-                            if (ids != null && !ids.isEmpty() && !ids.contains(other.id)) continue;
+                            boolean matchAll = (ids == null || ids.isEmpty()) && (names == null || names.isEmpty());
+                            boolean matchId = ids != null && ids.contains(other.id);
+                            boolean matchName = names != null && names.contains(other.name);
+                            if (!matchAll && !matchId && !matchName) continue;
                             if (collides(en, other)) {
                                 triggerEvent(en, ev);
                                 break;
@@ -2302,7 +2307,7 @@ public class ScratchMVP {
         Entity cloneEntity(Entity src, boolean keepId) {
             Entity c = new Entity();
             if (keepId) c.id = src.id;
-            c.name = keepId ? src.name : src.name + "_copia";
+            c.name = src.name;
             c.t.x = src.t.x;
             c.t.y = src.t.y;
             c.t.rot = src.t.rot;
