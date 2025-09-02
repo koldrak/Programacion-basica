@@ -2307,7 +2307,7 @@ public class ScratchMVP {
         Entity cloneEntity(Entity src, boolean keepId) {
             Entity c = new Entity();
             if (keepId) c.id = src.id;
-            c.name = keepId ? src.name : src.name + "_copia";
+            c.name = src.name;
             c.t.x = src.t.x;
             c.t.y = src.t.y;
             c.t.rot = src.t.rot;
