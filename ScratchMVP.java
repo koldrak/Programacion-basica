@@ -25,6 +25,8 @@ import java.util.List;
  */
 public class ScratchMVP {
 
+    static final File PROJECTS_DIR = new File("proyectos");
+
     // ====== MODELO BÁSICO ======
     enum ShapeType { RECT, CIRCLE, TRIANGLE, PENTAGON, HEXAGON, STAR, POLYGON }
 
@@ -724,6 +726,9 @@ public class ScratchMVP {
 
     // ====== UI GENERAL ======
     public static void main(String[] args) {
+        if (!PROJECTS_DIR.exists()) {
+            PROJECTS_DIR.mkdirs();
+        }
         SwingUtilities.invokeLater(() -> new MainFrame().setVisible(true));
     }
 
@@ -863,13 +868,13 @@ public class ScratchMVP {
             });
 
             btnSaveProj.addActionListener(e -> {
-                JFileChooser fc = new JFileChooser();
+                JFileChooser fc = new JFileChooser(PROJECTS_DIR);
                 if (fc.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
                     saveProject(project, fc.getSelectedFile());
                 }
             });
             btnLoadProj.addActionListener(e -> {
-                JFileChooser fc = new JFileChooser();
+                JFileChooser fc = new JFileChooser(PROJECTS_DIR);
                 if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
                     loadProject(project, fc.getSelectedFile());
                     refreshAll();
