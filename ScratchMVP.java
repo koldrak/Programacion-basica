@@ -56,6 +56,10 @@ public class ScratchMVP {
         // Movimiento gradual hacia otra entidad
         String moveTargetId = null;
         double moveSpeed = 0;
+
+        // Movimiento por velocidad/dirección durante un tiempo
+        double moveVx = 0, moveVy = 0; // velocidad en px/s
+        long moveUntilMs = 0;          // instante en ms para detener
     }
 
     static class Project implements Serializable {
@@ -150,7 +154,7 @@ public class ScratchMVP {
     enum BlockKind { EVENT, ACTION }
 
     enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
-    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY }
+    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, STOP }
 
     static abstract class Block implements Serializable {
         final String id = UUID.randomUUID().toString();
@@ -235,18 +239,10 @@ public class ScratchMVP {
         @Override String title() {
             switch (type) {
                 case MOVE_BY:
-                    int dx = (int) args.getOrDefault("dx", 5);
-                    int dy = (int) args.getOrDefault("dy", 0);
-                    String dir;
-                    int pasos;
-                    if (Math.abs(dx) >= Math.abs(dy)) {
-                        dir = dx >= 0 ? "derecha" : "izquierda";
-                        pasos = Math.abs(dx);
-                    } else {
-                        dir = dy >= 0 ? "abajo" : "arriba";
-                        pasos = Math.abs(dy);
-                    }
-                    return "Acción: Mover " + dir + " " + pasos;
+                    String dir = String.valueOf(args.getOrDefault("dir", "derecha"));
+                    double speed = ((Number) args.getOrDefault("speed", 100.0)).doubleValue();
+                    double secs = ((Number) args.getOrDefault("secs", 1.0)).doubleValue();
+                    return "Acción: Mover " + dir + " v=" + speed + " t=" + secs + "s";
                 case SET_COLOR:
                     return "Acción: Color";
                 case SAY:
@@ -281,6 +277,8 @@ public class ScratchMVP {
                     return "Acción: Crear entidad" + (name != null ? " " + name : "");
                 case DELETE_ENTITY:
                     return "Acción: Borrar entidad";
+                case STOP:
+                    return "Acción: Detener";
             }
             return "Acción";
         }
@@ -455,6 +453,17 @@ public class ScratchMVP {
                 }
             }
 
+            // Movimiento por velocidad/duración
+            for (Entity en : new ArrayList<>(stage.entities)) {
+                if (en.moveUntilMs > nowMs) {
+                    en.t.x += en.moveVx * dt;
+                    en.t.y += en.moveVy * dt;
+                    stage.clampEntity(en);
+                } else {
+                    en.moveVx = en.moveVy = 0;
+                }
+            }
+
             // ON_TICK
             for (Entity en : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
@@ -626,11 +635,20 @@ public class ScratchMVP {
         boolean executeAction(Entity e, ActionBlock ab) {
             switch (ab.type) {
                 case MOVE_BY -> {
-                    int dx = (int) ab.args.getOrDefault("dx", 5);
-                    int dy = (int) ab.args.getOrDefault("dy", 0);
-                    e.t.x += dx;
-                    e.t.y += dy;
-                    stage.clampEntity(e);
+                    String dir = String.valueOf(ab.args.getOrDefault("dir", "derecha"));
+                    double speed = Double.parseDouble(String.valueOf(ab.args.getOrDefault("speed", 100.0)));
+                    double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
+                    double vx = 0, vy = 0;
+                    switch (dir) {
+                        case "izquierda" -> vx = -speed;
+                        case "derecha" -> vx = speed;
+                        case "arriba" -> vy = -speed;
+                        case "abajo" -> vy = speed;
+                    }
+                    e.moveTargetId = null;
+                    e.moveVx = vx;
+                    e.moveVy = vy;
+                    e.moveUntilMs = System.currentTimeMillis() + (long) (secs * 1000);
                 }
                 case SET_COLOR -> {
                     Color chosenColor = (Color) ab.args.getOrDefault("color", new Color(0xE74C3C));
@@ -728,7 +746,26 @@ public class ScratchMVP {
                         stage.entities.add(clone);
                         project.scriptsByEntity.put(clone.id, scripts);
                         List<EventBlock> roots = project.scriptsByEntity.getOrDefault(clone.id, Collections.emptyList());
-                        for (EventBlock ev : roots) if (ev.type == EventType.ON_APPEAR) triggerEvent(clone, ev);
+                        long now = System.currentTimeMillis();
+                        for (EventBlock ev : roots) {
+                            switch (ev.type) {
+                                case ON_APPEAR -> triggerEvent(clone, ev);
+                                case ON_TICK -> tickLastFire
+                                        .computeIfAbsent(clone.id, k -> new HashMap<>())
+                                        .put(ev, now);
+                                case ON_VAR_CHANGE -> {
+                                    String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                                    double cur = clone.vars.getOrDefault(var, 0.0);
+                                    varLast.computeIfAbsent(clone.id, k -> new HashMap<>()).put(ev, cur);
+                                }
+                                case ON_GLOBAL_VAR_CHANGE -> {
+                                    String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                                    double cur = project.globalVars.getOrDefault(var, 0.0);
+                                    globalVarLast.put(ev, cur);
+                                }
+                                default -> {}
+                            }
+                        }
                     });
                 }
                 case DELETE_ENTITY -> {
@@ -744,6 +781,12 @@ public class ScratchMVP {
                     if (target == e) {
                         return false;
                     }
+                }
+                case STOP -> {
+                    e.moveTargetId = null;
+                    e.moveVx = e.moveVy = 0;
+                    e.moveUntilMs = 0;
+                    e.sayText = null;
                 }
             }
             return true;
@@ -1292,7 +1335,9 @@ public class ScratchMVP {
             add(section("Acciones"));
             add(makeBtn("Mover...", () -> {
                 ActionBlock b = new ActionBlock(ActionType.MOVE_BY);
-                b.args.put("dx", 5); b.args.put("dy", 0);
+                b.args.put("dir", "derecha");
+                b.args.put("speed", 100.0);
+                b.args.put("secs", 1.0);
                 return b;
             }));
             add(makeBtn("Color...", () -> new ActionBlock(ActionType.SET_COLOR)));
@@ -1361,6 +1406,7 @@ public class ScratchMVP {
             add(makeBtn("Mover a entidad...", () -> new ActionBlock(ActionType.MOVE_TO_ENTITY)));
             add(makeBtn("Crear entidad", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
             add(makeBtn("Eliminar entidad", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
+            add(makeBtn("Detener", () -> new ActionBlock(ActionType.STOP)));
 
             add(Box.createVerticalGlue());
         }
@@ -1768,23 +1814,29 @@ public class ScratchMVP {
                 switch (ab.type) {
                     case MOVE_BY -> {
                         String[] dirs = {"Derecha","Izquierda","Arriba","Abajo"};
-                        int curDx = (int) ab.args.getOrDefault("dx", 5);
-                        int curDy = (int) ab.args.getOrDefault("dy", 0);
-                        int selDir;
-                        if (Math.abs(curDx) >= Math.abs(curDy)) selDir = curDx >= 0 ? 0 : 1; else selDir = curDy < 0 ? 2 : 3;
-                        selDir = Math.max(0, Math.min(selDir, 3));
+                        String curDir = String.valueOf(ab.args.getOrDefault("dir", "derecha"));
+                        int selDir = switch (curDir) {
+                            case "izquierda" -> 1;
+                            case "arriba" -> 2;
+                            case "abajo" -> 3;
+                            default -> 0;
+                        };
                         int dir = JOptionPane.showOptionDialog(this, "Dirección", "Dirección", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, dirs, dirs[selDir]);
                         if (dir >= 0) {
-                            String pasos = JOptionPane.showInputDialog(this, "Pixeles:", Math.max(Math.abs(curDx), Math.abs(curDy)));
-                            if (pasos != null && pasos.matches("\\d+")) {
-                                int val = Integer.parseInt(pasos);
+                            String spd = JOptionPane.showInputDialog(this, "Velocidad (px/s):", ab.args.getOrDefault("speed", 100.0));
+                            String dur = JOptionPane.showInputDialog(this, "Duración (s):", ab.args.getOrDefault("secs", 1.0));
+                            try {
+                                double vs = Double.parseDouble(spd);
+                                double se = Double.parseDouble(dur);
                                 switch (dir) {
-                                    case 0 -> { ab.args.put("dx", val); ab.args.put("dy", 0); }
-                                    case 1 -> { ab.args.put("dx", -val); ab.args.put("dy", 0); }
-                                    case 2 -> { ab.args.put("dx", 0); ab.args.put("dy", -val); }
-                                    case 3 -> { ab.args.put("dx", 0); ab.args.put("dy", val); }
+                                    case 0 -> ab.args.put("dir", "derecha");
+                                    case 1 -> ab.args.put("dir", "izquierda");
+                                    case 2 -> ab.args.put("dir", "arriba");
+                                    case 3 -> ab.args.put("dir", "abajo");
                                 }
-                            }
+                                ab.args.put("speed", vs);
+                                ab.args.put("secs", se);
+                            } catch (Exception ignored) {}
                         }
                     }
                     case SET_COLOR -> {
@@ -1992,6 +2044,7 @@ public class ScratchMVP {
                             }
                         }
                     }
+                    case STOP -> {}
                 }
             }
         }
