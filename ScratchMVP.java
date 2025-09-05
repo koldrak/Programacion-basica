@@ -60,6 +60,10 @@ public class ScratchMVP {
         // Movimiento por velocidad/dirección durante un tiempo
         double moveVx = 0, moveVy = 0; // velocidad en px/s
         long moveUntilMs = 0;          // instante en ms para detener
+
+        // Continuación diferida de la cadena de acciones
+        Block resumeBlock = null;
+        long resumeAtMs = 0;
     }
 
     static class Project implements Serializable {
@@ -274,7 +278,19 @@ public class ScratchMVP {
                     return "Acción: Mover a " + (tgt != null ? tgt : "entidad");
                 case SPAWN_ENTITY:
                     String name = (String) args.get("templateName");
-                    return "Acción: Crear entidad" + (name != null ? " " + name : "");
+                    String mode = String.valueOf(args.getOrDefault("mode", "MAP"));
+                    if ("REL".equals(mode)) {
+                        String dirSpawn = String.valueOf(args.getOrDefault("dir", "abajo"));
+                        Object dObj = args.getOrDefault("distance", 0);
+                        double dist = dObj instanceof Number ? ((Number) dObj).doubleValue() : 0.0;
+                        return "Acción: Crear " + (name != null ? name : "entidad") + " " + dirSpawn + " d=" + dist;
+                    } else {
+                        Object xObj = args.getOrDefault("x", 0);
+                        Object yObj = args.getOrDefault("y", 0);
+                        double x = xObj instanceof Number ? ((Number) xObj).doubleValue() : 0.0;
+                        double y = yObj instanceof Number ? ((Number) yObj).doubleValue() : 0.0;
+                        return "Acción: Crear " + (name != null ? name : "entidad") + " (" + x + "," + y + ")";
+                    }
                 case DELETE_ENTITY:
                     return "Acción: Borrar entidad";
                 case STOP:
@@ -464,6 +480,16 @@ public class ScratchMVP {
                 }
             }
 
+            // Reanudar cadenas temporizadas
+            for (Entity en : new ArrayList<>(stage.entities)) {
+                if (en.resumeBlock != null && nowMs >= en.resumeAtMs) {
+                    Block rb = en.resumeBlock;
+                    en.resumeBlock = null;
+                    en.resumeAtMs = 0;
+                    executeChain(en, rb);
+                }
+            }
+
             // ON_TICK
             for (Entity en : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
@@ -609,6 +635,30 @@ public class ScratchMVP {
             }
         }
 
+        void initEntityRuntime(Entity en) {
+            List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
+            long now = System.currentTimeMillis();
+            for (EventBlock ev : roots) {
+                switch (ev.type) {
+                    case ON_APPEAR -> triggerEvent(en, ev);
+                    case ON_TICK -> tickLastFire
+                            .computeIfAbsent(en.id, k -> new HashMap<>())
+                            .put(ev, now);
+                    case ON_VAR_CHANGE -> {
+                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        double cur = en.vars.getOrDefault(var, 0.0);
+                        varLast.computeIfAbsent(en.id, k -> new HashMap<>()).put(ev, cur);
+                    }
+                    case ON_GLOBAL_VAR_CHANGE -> {
+                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        double cur = project.globalVars.getOrDefault(var, 0.0);
+                        globalVarLast.put(ev, cur);
+                    }
+                    default -> {}
+                }
+            }
+        }
+
         boolean collides(Entity a, Entity b) {
             Shape sa = buildShape(a);
             Shape sb = buildShape(b);
@@ -654,6 +704,9 @@ public class ScratchMVP {
                     e.moveVx = vx;
                     e.moveVy = vy;
                     e.moveUntilMs = System.currentTimeMillis() + (long) (secs * 1000);
+                    e.resumeBlock = ab.next;
+                    e.resumeAtMs = e.moveUntilMs;
+                    return false;
                 }
                 case SET_COLOR -> {
                     Color chosenColor = (Color) ab.args.getOrDefault("color", new Color(0xE74C3C));
@@ -689,9 +742,8 @@ public class ScratchMVP {
                 }
                 case WAIT -> {
                     double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
-                    javax.swing.Timer tm = new javax.swing.Timer((int) (secs * 1000), ev -> executeChain(e, ab.next));
-                    tm.setRepeats(false);
-                    tm.start();
+                    e.resumeBlock = ab.next;
+                    e.resumeAtMs = System.currentTimeMillis() + (long) (secs * 1000);
                     return false;
                 }
                 case ROTATE_BY -> {
@@ -746,31 +798,46 @@ public class ScratchMVP {
                     Entity tpl = tplId != null ? project.getById(tplId) : null;
                     if (tpl == null) tpl = e;
                     Entity clone = stage.cloneEntity(tpl);
+
+                    String mode = String.valueOf(ab.args.getOrDefault("mode", "MAP"));
+                    if ("MAP".equals(mode)) {
+                        double x = ((Number) ab.args.getOrDefault("x", clone.t.x)).doubleValue();
+                        double y = ((Number) ab.args.getOrDefault("y", clone.t.y)).doubleValue();
+                        clone.t.x = x;
+                        clone.t.y = y;
+                    } else {
+                        String dir = String.valueOf(ab.args.getOrDefault("dir", "abajo"));
+                        double dist = ((Number) ab.args.getOrDefault("distance", 0.0)).doubleValue();
+                        double parentW = e.a.width * e.t.scaleX;
+                        double parentH = e.a.height * e.t.scaleY;
+                        double childW = clone.a.width * clone.t.scaleX;
+                        double childH = clone.a.height * clone.t.scaleY;
+                        switch (dir.toLowerCase(Locale.ROOT)) {
+                            case "arriba" -> {
+                                clone.t.x = e.t.x + (parentW - childW) / 2;
+                                clone.t.y = e.t.y - dist - childH;
+                            }
+                            case "izquierda" -> {
+                                clone.t.x = e.t.x - dist - childW;
+                                clone.t.y = e.t.y + (parentH - childH) / 2;
+                            }
+                            case "derecha" -> {
+                                clone.t.x = e.t.x + parentW + dist;
+                                clone.t.y = e.t.y + (parentH - childH) / 2;
+                            }
+                            default -> {
+                                clone.t.x = e.t.x + (parentW - childW) / 2;
+                                clone.t.y = e.t.y + parentH + dist;
+                            }
+                        }
+                    }
+                    stage.clampEntity(clone);
+
                     List<EventBlock> scripts = stage.cloneScripts(tpl.id);
                     pendingOps.add(() -> {
                         stage.entities.add(clone);
                         project.scriptsByEntity.put(clone.id, scripts);
-                        List<EventBlock> roots = project.scriptsByEntity.getOrDefault(clone.id, Collections.emptyList());
-                        long now = System.currentTimeMillis();
-                        for (EventBlock ev : roots) {
-                            switch (ev.type) {
-                                case ON_APPEAR -> triggerEvent(clone, ev);
-                                case ON_TICK -> tickLastFire
-                                        .computeIfAbsent(clone.id, k -> new HashMap<>())
-                                        .put(ev, now);
-                                case ON_VAR_CHANGE -> {
-                                    String var = String.valueOf(ev.args.getOrDefault("var", "var"));
-                                    double cur = clone.vars.getOrDefault(var, 0.0);
-                                    varLast.computeIfAbsent(clone.id, k -> new HashMap<>()).put(ev, cur);
-                                }
-                                case ON_GLOBAL_VAR_CHANGE -> {
-                                    String var = String.valueOf(ev.args.getOrDefault("var", "var"));
-                                    double cur = project.globalVars.getOrDefault(var, 0.0);
-                                    globalVarLast.put(ev, cur);
-                                }
-                                default -> {}
-                            }
-                        }
+                        initEntityRuntime(clone);
                     });
                 }
                 case DELETE_ENTITY -> {
@@ -2049,9 +2116,50 @@ public class ScratchMVP {
                         if (!names.contains(currentName)) names.add(0, currentName);
                         JSpinner entSpin = new JSpinner(new SpinnerListModel(names));
                         entSpin.setValue(currentName);
-                        JPanel pan = new JPanel(new GridLayout(1,2));
-                        pan.add(new JLabel("Entidad"));
-                        pan.add(entSpin);
+
+                        String mode = String.valueOf(ab.args.getOrDefault("mode", "MAP"));
+                        JRadioButton mapBtn = new JRadioButton("Coordenadas del mapa");
+                        JRadioButton relBtn = new JRadioButton("Relativas a la entidad");
+                        ButtonGroup grp = new ButtonGroup();
+                        grp.add(mapBtn); grp.add(relBtn);
+                        mapBtn.setSelected("MAP".equals(mode));
+                        relBtn.setSelected("REL".equals(mode));
+
+                        double curX = ((Number) ab.args.getOrDefault("x", 0.0)).doubleValue();
+                        double curY = ((Number) ab.args.getOrDefault("y", 0.0)).doubleValue();
+                        JSpinner xSpin = new JSpinner(new SpinnerNumberModel(curX, 0.0, canvas.project.canvas.width, 1.0));
+                        JSpinner ySpin = new JSpinner(new SpinnerNumberModel(curY, 0.0, canvas.project.canvas.height, 1.0));
+                        JPanel mapPanel = new JPanel(new GridLayout(2,2));
+                        mapPanel.add(new JLabel("X:")); mapPanel.add(xSpin);
+                        mapPanel.add(new JLabel("Y:")); mapPanel.add(ySpin);
+
+                        String curDir = String.valueOf(ab.args.getOrDefault("dir", "abajo"));
+                        JComboBox<String> dirBox = new JComboBox<>(new String[]{"arriba","abajo","izquierda","derecha"});
+                        dirBox.setSelectedItem(curDir);
+                        double curDist = ((Number) ab.args.getOrDefault("distance", 0.0)).doubleValue();
+                        JSpinner distSpin = new JSpinner(new SpinnerNumberModel(curDist, 0.0, 1000.0, 1.0));
+                        JPanel relPanel = new JPanel(new GridLayout(2,2));
+                        relPanel.add(new JLabel("Dirección:")); relPanel.add(dirBox);
+                        relPanel.add(new JLabel("Distancia:")); relPanel.add(distSpin);
+
+                        CardLayout card = new CardLayout();
+                        JPanel cardPanel = new JPanel(card);
+                        cardPanel.add(mapPanel, "MAP");
+                        cardPanel.add(relPanel, "REL");
+                        card.show(cardPanel, "MAP".equals(mode) ? "MAP" : "REL");
+                        mapBtn.addActionListener(ev -> card.show(cardPanel, "MAP"));
+                        relBtn.addActionListener(ev -> card.show(cardPanel, "REL"));
+
+                        JPanel pan = new JPanel();
+                        pan.setLayout(new BoxLayout(pan, BoxLayout.Y_AXIS));
+                        JPanel entPanel = new JPanel(new GridLayout(1,2));
+                        entPanel.add(new JLabel("Entidad"));
+                        entPanel.add(entSpin);
+                        pan.add(entPanel);
+                        pan.add(mapBtn);
+                        pan.add(relBtn);
+                        pan.add(cardPanel);
+
                         int r = JOptionPane.showConfirmDialog(this, pan, "Crear entidad", JOptionPane.OK_CANCEL_OPTION);
                         if (r == JOptionPane.OK_OPTION) {
                             String name = (String) entSpin.getValue();
@@ -2060,6 +2168,15 @@ public class ScratchMVP {
                             if (tpl != null) {
                                 ab.args.put("templateId", tpl.id);
                                 ab.args.put("templateName", tpl.name);
+                            }
+                            if (mapBtn.isSelected()) {
+                                ab.args.put("mode", "MAP");
+                                ab.args.put("x", ((Number) xSpin.getValue()).doubleValue());
+                                ab.args.put("y", ((Number) ySpin.getValue()).doubleValue());
+                            } else {
+                                ab.args.put("mode", "REL");
+                                ab.args.put("dir", dirBox.getSelectedItem());
+                                ab.args.put("distance", ((Number) distSpin.getValue()).doubleValue());
                             }
                         }
                     }
@@ -2325,6 +2442,8 @@ public class ScratchMVP {
             c.t.x = src.t.x;
             c.t.y = src.t.y;
             c.t.rot = src.t.rot;
+            c.t.scaleX = src.t.scaleX;
+            c.t.scaleY = src.t.scaleY;
             c.a.shape = src.a.shape;
             c.a.color = src.a.color;
             c.a.width = src.a.width;
