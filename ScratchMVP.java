@@ -1115,8 +1115,25 @@ public class ScratchMVP {
             ChangeListener cl = e -> {
                 Entity sel = listPanel.getSelected();
                 if (sel != null) {
-                    sel.a.width = ((Number)wSpin.getValue()).doubleValue();
-                    sel.a.height = ((Number)hSpin.getValue()).doubleValue();
+                    double newW = ((Number) wSpin.getValue()).doubleValue();
+                    double newH = ((Number) hSpin.getValue()).doubleValue();
+
+                    if (sel.a.shape == ShapeType.POLYGON && sel.a.customPolygon != null) {
+                        double oldW = sel.a.width;
+                        double oldH = sel.a.height;
+                        double sx = newW / (oldW == 0 ? 1 : oldW);
+                        double sy = newH / (oldH == 0 ? 1 : oldH);
+                        for (int i = 0; i < sel.a.customPolygon.npoints; i++) {
+                            sel.a.customPolygon.xpoints[i] = (int) Math.round(sel.a.customPolygon.xpoints[i] * sx);
+                            sel.a.customPolygon.ypoints[i] = (int) Math.round(sel.a.customPolygon.ypoints[i] * sy);
+                        }
+                        sel.a.customPolygon.invalidate();
+                        sel.t.x += (oldW - newW) / 2.0;
+                        sel.t.y += (oldH - newH) / 2.0;
+                    }
+
+                    sel.a.width = newW;
+                    sel.a.height = newH;
                     canvas.repaint();
                 }
             };
@@ -1186,11 +1203,8 @@ public class ScratchMVP {
             Entity sel = listPanel.getSelected();
             boolean en = sel != null;
             shapeBox.setEnabled(en); colorBtn.setEnabled(en);
-            if (sel != null && sel.a.shape == ShapeType.POLYGON) {
-                wSpin.setEnabled(false); hSpin.setEnabled(false);
-            } else {
-                wSpin.setEnabled(en); hSpin.setEnabled(en);
-            }
+            // permitir redimensionar incluso en formas personalizadas
+            wSpin.setEnabled(en); hSpin.setEnabled(en);
             btnAddVar.setEnabled(en); varList.setEnabled(en);
             if (sel != null) {
                 int idx = switch(sel.a.shape){
