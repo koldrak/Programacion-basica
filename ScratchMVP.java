@@ -690,6 +690,10 @@ public class ScratchMVP {
                     e.moveVx = vx;
                     e.moveVy = vy;
                     e.moveUntilMs = System.currentTimeMillis() + (long) (secs * 1000);
+                    javax.swing.Timer tm = new javax.swing.Timer((int) (secs * 1000), ev -> executeChain(e, ab.next));
+                    tm.setRepeats(false);
+                    tm.start();
+                    return false;
                 }
                 case SET_COLOR -> {
                     Color chosenColor = (Color) ab.args.getOrDefault("color", new Color(0xE74C3C));
