@@ -621,6 +621,30 @@ public class ScratchMVP {
             }
         }
 
+        void initEntityRuntime(Entity en) {
+            List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
+            long now = System.currentTimeMillis();
+            for (EventBlock ev : roots) {
+                switch (ev.type) {
+                    case ON_APPEAR -> triggerEvent(en, ev);
+                    case ON_TICK -> tickLastFire
+                            .computeIfAbsent(en.id, k -> new HashMap<>())
+                            .put(ev, now);
+                    case ON_VAR_CHANGE -> {
+                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        double cur = en.vars.getOrDefault(var, 0.0);
+                        varLast.computeIfAbsent(en.id, k -> new HashMap<>()).put(ev, cur);
+                    }
+                    case ON_GLOBAL_VAR_CHANGE -> {
+                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                        double cur = project.globalVars.getOrDefault(var, 0.0);
+                        globalVarLast.put(ev, cur);
+                    }
+                    default -> {}
+                }
+            }
+        }
+
         boolean collides(Entity a, Entity b) {
             Shape sa = buildShape(a);
             Shape sb = buildShape(b);
@@ -768,22 +792,26 @@ public class ScratchMVP {
                     } else {
                         String dir = String.valueOf(ab.args.getOrDefault("dir", "abajo"));
                         double dist = ((Number) ab.args.getOrDefault("distance", 0.0)).doubleValue();
+                        double parentW = e.a.width * e.t.scaleX;
+                        double parentH = e.a.height * e.t.scaleY;
+                        double childW = clone.a.width * clone.t.scaleX;
+                        double childH = clone.a.height * clone.t.scaleY;
                         switch (dir.toLowerCase(Locale.ROOT)) {
                             case "arriba" -> {
-                                clone.t.x = e.t.x + (e.a.width - clone.a.width) / 2;
-                                clone.t.y = e.t.y - dist - clone.a.height;
+                                clone.t.x = e.t.x + (parentW - childW) / 2;
+                                clone.t.y = e.t.y - dist - childH;
                             }
                             case "izquierda" -> {
-                                clone.t.x = e.t.x - dist - clone.a.width;
-                                clone.t.y = e.t.y + (e.a.height - clone.a.height) / 2;
+                                clone.t.x = e.t.x - dist - childW;
+                                clone.t.y = e.t.y + (parentH - childH) / 2;
                             }
                             case "derecha" -> {
-                                clone.t.x = e.t.x + e.a.width + dist;
-                                clone.t.y = e.t.y + (e.a.height - clone.a.height) / 2;
+                                clone.t.x = e.t.x + parentW + dist;
+                                clone.t.y = e.t.y + (parentH - childH) / 2;
                             }
                             default -> {
-                                clone.t.x = e.t.x + (e.a.width - clone.a.width) / 2;
-                                clone.t.y = e.t.y + e.a.height + dist;
+                                clone.t.x = e.t.x + (parentW - childW) / 2;
+                                clone.t.y = e.t.y + parentH + dist;
                             }
                         }
                     }
@@ -793,27 +821,7 @@ public class ScratchMVP {
                     pendingOps.add(() -> {
                         stage.entities.add(clone);
                         project.scriptsByEntity.put(clone.id, scripts);
-                        List<EventBlock> roots = project.scriptsByEntity.getOrDefault(clone.id, Collections.emptyList());
-                        long now = System.currentTimeMillis();
-                        for (EventBlock ev : roots) {
-                            switch (ev.type) {
-                                case ON_APPEAR -> triggerEvent(clone, ev);
-                                case ON_TICK -> tickLastFire
-                                        .computeIfAbsent(clone.id, k -> new HashMap<>())
-                                        .put(ev, now);
-                                case ON_VAR_CHANGE -> {
-                                    String var = String.valueOf(ev.args.getOrDefault("var", "var"));
-                                    double cur = clone.vars.getOrDefault(var, 0.0);
-                                    varLast.computeIfAbsent(clone.id, k -> new HashMap<>()).put(ev, cur);
-                                }
-                                case ON_GLOBAL_VAR_CHANGE -> {
-                                    String var = String.valueOf(ev.args.getOrDefault("var", "var"));
-                                    double cur = project.globalVars.getOrDefault(var, 0.0);
-                                    globalVarLast.put(ev, cur);
-                                }
-                                default -> {}
-                            }
-                        }
+                        initEntityRuntime(clone);
                     });
                 }
                 case DELETE_ENTITY -> {
@@ -2418,6 +2426,8 @@ public class ScratchMVP {
             c.t.x = src.t.x;
             c.t.y = src.t.y;
             c.t.rot = src.t.rot;
+            c.t.scaleX = src.t.scaleX;
+            c.t.scaleY = src.t.scaleY;
             c.a.shape = src.a.shape;
             c.a.color = src.a.color;
             c.a.width = src.a.width;
