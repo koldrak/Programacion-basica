@@ -274,7 +274,19 @@ public class ScratchMVP {
                     return "Acción: Mover a " + (tgt != null ? tgt : "entidad");
                 case SPAWN_ENTITY:
                     String name = (String) args.get("templateName");
-                    return "Acción: Crear entidad" + (name != null ? " " + name : "");
+                    String mode = String.valueOf(args.getOrDefault("mode", "MAP"));
+                    if ("REL".equals(mode)) {
+                        String dirSpawn = String.valueOf(args.getOrDefault("dir", "abajo"));
+                        Object dObj = args.getOrDefault("distance", 0);
+                        double dist = dObj instanceof Number ? ((Number) dObj).doubleValue() : 0.0;
+                        return "Acción: Crear " + (name != null ? name : "entidad") + " " + dirSpawn + " d=" + dist;
+                    } else {
+                        Object xObj = args.getOrDefault("x", 0);
+                        Object yObj = args.getOrDefault("y", 0);
+                        double x = xObj instanceof Number ? ((Number) xObj).doubleValue() : 0.0;
+                        double y = yObj instanceof Number ? ((Number) yObj).doubleValue() : 0.0;
+                        return "Acción: Crear " + (name != null ? name : "entidad") + " (" + x + "," + y + ")";
+                    }
                 case DELETE_ENTITY:
                     return "Acción: Borrar entidad";
                 case STOP:
@@ -746,6 +758,37 @@ public class ScratchMVP {
                     Entity tpl = tplId != null ? project.getById(tplId) : null;
                     if (tpl == null) tpl = e;
                     Entity clone = stage.cloneEntity(tpl);
+
+                    String mode = String.valueOf(ab.args.getOrDefault("mode", "MAP"));
+                    if ("MAP".equals(mode)) {
+                        double x = ((Number) ab.args.getOrDefault("x", clone.t.x)).doubleValue();
+                        double y = ((Number) ab.args.getOrDefault("y", clone.t.y)).doubleValue();
+                        clone.t.x = x;
+                        clone.t.y = y;
+                    } else {
+                        String dir = String.valueOf(ab.args.getOrDefault("dir", "abajo"));
+                        double dist = ((Number) ab.args.getOrDefault("distance", 0.0)).doubleValue();
+                        switch (dir.toLowerCase(Locale.ROOT)) {
+                            case "arriba" -> {
+                                clone.t.x = e.t.x + (e.a.width - clone.a.width) / 2;
+                                clone.t.y = e.t.y - dist - clone.a.height;
+                            }
+                            case "izquierda" -> {
+                                clone.t.x = e.t.x - dist - clone.a.width;
+                                clone.t.y = e.t.y + (e.a.height - clone.a.height) / 2;
+                            }
+                            case "derecha" -> {
+                                clone.t.x = e.t.x + e.a.width + dist;
+                                clone.t.y = e.t.y + (e.a.height - clone.a.height) / 2;
+                            }
+                            default -> {
+                                clone.t.x = e.t.x + (e.a.width - clone.a.width) / 2;
+                                clone.t.y = e.t.y + e.a.height + dist;
+                            }
+                        }
+                    }
+                    stage.clampEntity(clone);
+
                     List<EventBlock> scripts = stage.cloneScripts(tpl.id);
                     pendingOps.add(() -> {
                         stage.entities.add(clone);
@@ -2049,9 +2092,50 @@ public class ScratchMVP {
                         if (!names.contains(currentName)) names.add(0, currentName);
                         JSpinner entSpin = new JSpinner(new SpinnerListModel(names));
                         entSpin.setValue(currentName);
-                        JPanel pan = new JPanel(new GridLayout(1,2));
-                        pan.add(new JLabel("Entidad"));
-                        pan.add(entSpin);
+
+                        String mode = String.valueOf(ab.args.getOrDefault("mode", "MAP"));
+                        JRadioButton mapBtn = new JRadioButton("Coordenadas del mapa");
+                        JRadioButton relBtn = new JRadioButton("Relativas a la entidad");
+                        ButtonGroup grp = new ButtonGroup();
+                        grp.add(mapBtn); grp.add(relBtn);
+                        mapBtn.setSelected("MAP".equals(mode));
+                        relBtn.setSelected("REL".equals(mode));
+
+                        double curX = ((Number) ab.args.getOrDefault("x", 0.0)).doubleValue();
+                        double curY = ((Number) ab.args.getOrDefault("y", 0.0)).doubleValue();
+                        JSpinner xSpin = new JSpinner(new SpinnerNumberModel(curX, 0.0, canvas.project.canvas.width, 1.0));
+                        JSpinner ySpin = new JSpinner(new SpinnerNumberModel(curY, 0.0, canvas.project.canvas.height, 1.0));
+                        JPanel mapPanel = new JPanel(new GridLayout(2,2));
+                        mapPanel.add(new JLabel("X:")); mapPanel.add(xSpin);
+                        mapPanel.add(new JLabel("Y:")); mapPanel.add(ySpin);
+
+                        String curDir = String.valueOf(ab.args.getOrDefault("dir", "abajo"));
+                        JComboBox<String> dirBox = new JComboBox<>(new String[]{"arriba","abajo","izquierda","derecha"});
+                        dirBox.setSelectedItem(curDir);
+                        double curDist = ((Number) ab.args.getOrDefault("distance", 0.0)).doubleValue();
+                        JSpinner distSpin = new JSpinner(new SpinnerNumberModel(curDist, 0.0, 1000.0, 1.0));
+                        JPanel relPanel = new JPanel(new GridLayout(2,2));
+                        relPanel.add(new JLabel("Dirección:")); relPanel.add(dirBox);
+                        relPanel.add(new JLabel("Distancia:")); relPanel.add(distSpin);
+
+                        CardLayout card = new CardLayout();
+                        JPanel cardPanel = new JPanel(card);
+                        cardPanel.add(mapPanel, "MAP");
+                        cardPanel.add(relPanel, "REL");
+                        card.show(cardPanel, "MAP".equals(mode) ? "MAP" : "REL");
+                        mapBtn.addActionListener(ev -> card.show(cardPanel, "MAP"));
+                        relBtn.addActionListener(ev -> card.show(cardPanel, "REL"));
+
+                        JPanel pan = new JPanel();
+                        pan.setLayout(new BoxLayout(pan, BoxLayout.Y_AXIS));
+                        JPanel entPanel = new JPanel(new GridLayout(1,2));
+                        entPanel.add(new JLabel("Entidad"));
+                        entPanel.add(entSpin);
+                        pan.add(entPanel);
+                        pan.add(mapBtn);
+                        pan.add(relBtn);
+                        pan.add(cardPanel);
+
                         int r = JOptionPane.showConfirmDialog(this, pan, "Crear entidad", JOptionPane.OK_CANCEL_OPTION);
                         if (r == JOptionPane.OK_OPTION) {
                             String name = (String) entSpin.getValue();
@@ -2060,6 +2144,15 @@ public class ScratchMVP {
                             if (tpl != null) {
                                 ab.args.put("templateId", tpl.id);
                                 ab.args.put("templateName", tpl.name);
+                            }
+                            if (mapBtn.isSelected()) {
+                                ab.args.put("mode", "MAP");
+                                ab.args.put("x", ((Number) xSpin.getValue()).doubleValue());
+                                ab.args.put("y", ((Number) ySpin.getValue()).doubleValue());
+                            } else {
+                                ab.args.put("mode", "REL");
+                                ab.args.put("dir", dirBox.getSelectedItem());
+                                ab.args.put("distance", ((Number) distSpin.getValue()).doubleValue());
                             }
                         }
                     }
