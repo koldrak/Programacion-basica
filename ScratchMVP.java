@@ -154,7 +154,7 @@ public class ScratchMVP {
     enum BlockKind { EVENT, ACTION }
 
     enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
-    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, STOP }
+    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, STOP }
 
     static abstract class Block implements Serializable {
         final String id = UUID.randomUUID().toString();
@@ -269,6 +269,19 @@ public class ScratchMVP {
                     return "Acción: Opacidad " + args.getOrDefault("delta",0.1);
                 case RANDOM:
                     return "Acción: Aleatorio";
+                case IF_VAR:
+                    String var = String.valueOf(args.getOrDefault("var", "var"));
+                    String op = String.valueOf(args.getOrDefault("op", ">"));
+                    Object val = args.getOrDefault("value", 0);
+                    return "Acción: Si " + var + " " + op + " " + val;
+                case IF_GLOBAL_VAR:
+                    String gvar = String.valueOf(args.getOrDefault("var", "var"));
+                    String gop = String.valueOf(args.getOrDefault("op", ">"));
+                    Object gval = args.getOrDefault("value", 0);
+                    return "Acción: Si global " + gvar + " " + gop + " " + gval;
+                case IF_RANDOM_CHANCE:
+                    Object prob = args.getOrDefault("prob", 0.5);
+                    return "Acción: Si prob " + prob;
                 case MOVE_TO_ENTITY:
                     String tgt = (String) args.get("targetName");
                     return "Acción: Mover a " + (tgt != null ? tgt : "entidad");
@@ -733,6 +746,32 @@ public class ScratchMVP {
                     if (!ab.extraNext.isEmpty()) {
                         Block chosen = ab.extraNext.get(new Random().nextInt(ab.extraNext.size()));
                         executeChain(e, chosen);
+                    }
+                }
+                case IF_VAR -> {
+                    String var = String.valueOf(ab.args.getOrDefault("var", "var"));
+                    String op = String.valueOf(ab.args.getOrDefault("op", ">"));
+                    double target = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
+                    double cur = e.vars.getOrDefault(var, 0.0);
+                    boolean cond = op.equals(">") ? cur > target : cur < target;
+                    if (cond && !ab.extraNext.isEmpty()) {
+                        executeChain(e, ab.extraNext.get(0));
+                    }
+                }
+                case IF_GLOBAL_VAR -> {
+                    String var = String.valueOf(ab.args.getOrDefault("var", "var"));
+                    String op = String.valueOf(ab.args.getOrDefault("op", ">"));
+                    double target = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
+                    double cur = project.globalVars.getOrDefault(var, 0.0);
+                    boolean cond = op.equals(">") ? cur > target : cur < target;
+                    if (cond && !ab.extraNext.isEmpty()) {
+                        executeChain(e, ab.extraNext.get(0));
+                    }
+                }
+                case IF_RANDOM_CHANCE -> {
+                    double prob = Double.parseDouble(String.valueOf(ab.args.getOrDefault("prob", 0.5)));
+                    if (Math.random() < prob && !ab.extraNext.isEmpty()) {
+                        executeChain(e, ab.extraNext.get(0));
                     }
                 }
                 case MOVE_TO_ENTITY -> {
@@ -1467,6 +1506,25 @@ public class ScratchMVP {
                 return b;
             }));
             add(makeBtn("Aleatorio", () -> new ActionBlock(ActionType.RANDOM)));
+            add(makeBtn("Si variable...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.IF_VAR);
+                b.args.put("var", "var");
+                b.args.put("op", ">");
+                b.args.put("value", 0);
+                return b;
+            }));
+            add(makeBtn("Si global...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.IF_GLOBAL_VAR);
+                b.args.put("var", "global");
+                b.args.put("op", ">");
+                b.args.put("value", 0);
+                return b;
+            }));
+            add(makeBtn("Si probabilidad...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.IF_RANDOM_CHANCE);
+                b.args.put("prob", 0.5);
+                return b;
+            }));
             add(makeBtn("Mover a entidad...", () -> new ActionBlock(ActionType.MOVE_TO_ENTITY)));
             add(makeBtn("Crear entidad", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
             add(makeBtn("Eliminar entidad", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
@@ -1585,7 +1643,7 @@ public class ScratchMVP {
             v.setLocation(b.x, b.y);
             v.setSize(v.getPreferredSize());
             list.add(v);
-            if (b instanceof ActionBlock ab && ab.type == ActionType.RANDOM) {
+            if (b instanceof ActionBlock ab && (ab.type == ActionType.RANDOM || ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE)) {
                 for (Block extra : ab.extraNext) addRecursive(extra, list);
             }
             if (b.next != null) {
@@ -1618,7 +1676,7 @@ public class ScratchMVP {
                         g2.drawLine(x1, y1, x2, y2);
                     }
                 }
-                if (blk instanceof ActionBlock ab && ab.type == ActionType.RANDOM) {
+                if (blk instanceof ActionBlock ab && (ab.type == ActionType.RANDOM || ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE)) {
                     for (Block extra : ab.extraNext) {
                         BlockView child = findView(extra);
                         if (child != null) {
@@ -1650,7 +1708,7 @@ public class ScratchMVP {
                 ev.extraNext.remove(target);
                 for (Block extra : new ArrayList<>(ev.extraNext)) detachLinks(extra, target);
             }
-            if (b instanceof ActionBlock ab && ab.type == ActionType.RANDOM) {
+            if (b instanceof ActionBlock ab && (ab.type == ActionType.RANDOM || ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE)) {
                 ab.extraNext.remove(target);
                 for (Block extra : new ArrayList<>(ab.extraNext)) detachLinks(extra, target);
             }
@@ -1664,6 +1722,7 @@ public class ScratchMVP {
             // No permitir encadenar un EVENT debajo de otro bloque
             if (candidate.block instanceof EventBlock) return;
             BlockView target = null;
+            boolean inside = false;
             Point center = new Point(candidate.getX() + candidate.getWidth()/2,
                                      candidate.getY() + candidate.getHeight()/2);
             for (Component comp : getComponents()) {
@@ -1672,15 +1731,19 @@ public class ScratchMVP {
                 if (other == candidate) continue;
                 Rectangle bounds = other.getBounds();
                 Rectangle right = new Rectangle(bounds.x + bounds.width, bounds.y, 40, bounds.height);
-                if (bounds.contains(center) || right.contains(center)) {
-                    target = other;
-                    break;
-                }
+                if (bounds.contains(center)) { target = other; inside = true; break; }
+                if (right.contains(center)) { target = other; inside = false; break; }
             }
             if (target != null) {
                 detach(candidate);
-                if (target.block instanceof ActionBlock ab && ab.type == ActionType.RANDOM) {
-                    ab.extraNext.add(candidate.block);
+                if (target.block instanceof ActionBlock ab && (ab.type == ActionType.RANDOM || ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE) && inside) {
+                    if ((ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE) && !ab.extraNext.isEmpty()) {
+                        Block tail = target.block;
+                        while (tail.next != null) tail = tail.next;
+                        tail.next = candidate.block;
+                    } else {
+                        ab.extraNext.add(candidate.block);
+                    }
                 } else {
                     Block tail = target.block;
                     while (tail.next != null) tail = tail.next;
@@ -2000,6 +2063,63 @@ public class ScratchMVP {
                                 ab.args.put("var", v);
                                 ab.args.put("delta", d);
                             }
+                        }
+                    }
+                    case IF_VAR -> {
+                        Entity sel = canvas.listPanel.getSelected();
+                        java.util.Set<String> names = sel != null ? sel.vars.keySet() : java.util.Collections.emptySet();
+                        JComboBox<String> varBox = new JComboBox<>(names.toArray(new String[0]));
+                        String curOp = String.valueOf(ab.args.getOrDefault("op", ">"));
+                        JComboBox<String> opBox = new JComboBox<>(new String[]{"Mayor que","Menor que"});
+                        opBox.setSelectedIndex(curOp.equals(">") ? 0 : 1);
+                        double curVal = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
+                        JSpinner valSpin = new JSpinner(new SpinnerNumberModel(curVal, -1e9, 1e9, 1.0));
+                        JPanel pan = new JPanel(new GridLayout(3,2));
+                        pan.add(new JLabel("Variable:")); pan.add(varBox);
+                        pan.add(new JLabel("Condición:")); pan.add(opBox);
+                        pan.add(new JLabel("Valor:")); pan.add(valSpin);
+                        if (names.isEmpty()) {
+                            JOptionPane.showMessageDialog(this, "No hay variables", "Si variable", JOptionPane.WARNING_MESSAGE);
+                        } else {
+                            int r = JOptionPane.showConfirmDialog(this, pan, "Si variable", JOptionPane.OK_CANCEL_OPTION);
+                            if (r == JOptionPane.OK_OPTION) {
+                                ab.args.put("var", varBox.getSelectedItem());
+                                ab.args.put("op", opBox.getSelectedIndex() == 0 ? ">" : "<");
+                                ab.args.put("value", ((Number) valSpin.getValue()).doubleValue());
+                            }
+                        }
+                    }
+                    case IF_GLOBAL_VAR -> {
+                        java.util.Set<String> names = canvas.project.globalVars.keySet();
+                        JComboBox<String> varBox = new JComboBox<>(names.toArray(new String[0]));
+                        String curOp = String.valueOf(ab.args.getOrDefault("op", ">"));
+                        JComboBox<String> opBox = new JComboBox<>(new String[]{"Mayor que","Menor que"});
+                        opBox.setSelectedIndex(curOp.equals(">") ? 0 : 1);
+                        double curVal = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
+                        JSpinner valSpin = new JSpinner(new SpinnerNumberModel(curVal, -1e9, 1e9, 1.0));
+                        JPanel pan = new JPanel(new GridLayout(3,2));
+                        pan.add(new JLabel("Global:")); pan.add(varBox);
+                        pan.add(new JLabel("Condición:")); pan.add(opBox);
+                        pan.add(new JLabel("Valor:")); pan.add(valSpin);
+                        if (names.isEmpty()) {
+                            JOptionPane.showMessageDialog(this, "No hay variables", "Si global", JOptionPane.WARNING_MESSAGE);
+                        } else {
+                            int r = JOptionPane.showConfirmDialog(this, pan, "Si global", JOptionPane.OK_CANCEL_OPTION);
+                            if (r == JOptionPane.OK_OPTION) {
+                                ab.args.put("var", varBox.getSelectedItem());
+                                ab.args.put("op", opBox.getSelectedIndex() == 0 ? ">" : "<");
+                                ab.args.put("value", ((Number) valSpin.getValue()).doubleValue());
+                            }
+                        }
+                    }
+                    case IF_RANDOM_CHANCE -> {
+                        double curProb = Double.parseDouble(String.valueOf(ab.args.getOrDefault("prob", 0.5)));
+                        JSpinner probSpin = new JSpinner(new SpinnerNumberModel(curProb, 0.0, 1.0, 0.05));
+                        JPanel pan = new JPanel(new GridLayout(1,2));
+                        pan.add(new JLabel("Probabilidad:")); pan.add(probSpin);
+                        int r = JOptionPane.showConfirmDialog(this, pan, "Si probabilidad", JOptionPane.OK_CANCEL_OPTION);
+                        if (r == JOptionPane.OK_OPTION) {
+                            ab.args.put("prob", ((Number) probSpin.getValue()).doubleValue());
                         }
                     }
                     case WAIT -> {
@@ -2480,7 +2600,7 @@ public class ScratchMVP {
                 ActionBlock ab = (ActionBlock) b;
                 ActionBlock ab2 = new ActionBlock(ab.type);
                 ab2.args.putAll(ab.args);
-                if (ab.type == ActionType.RANDOM) {
+                if (ab.type == ActionType.RANDOM || ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE) {
                     for (Block extra : ab.extraNext) ab2.extraNext.add(cloneBlock(extra));
                 }
                 copy = ab2;
