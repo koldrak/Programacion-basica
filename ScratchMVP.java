@@ -2426,9 +2426,10 @@ public class ScratchMVP {
         Entity cloneEntity(Entity src, boolean keepId) {
             Entity c = new Entity();
             if (keepId) {
-                // Verifica que no exista otra entidad con el mismo id cuando se solicita conservarlo
+                // Verifica que no exista otra entidad diferente a 'src' con el mismo id
                 c.id = src.id;
-                boolean exists = entities.stream().anyMatch(en -> en.id.equals(c.id));
+                boolean exists = entities.stream().anyMatch(en -> en != src && en.id.equals(c.id))
+                        || project.entities.stream().anyMatch(en -> en != src && en.id.equals(c.id));
                 if (exists) {
                     throw new IllegalStateException("Entity id already exists: " + c.id);
                 }
