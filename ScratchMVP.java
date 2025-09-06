@@ -1433,7 +1433,28 @@ public class ScratchMVP {
                 b.args.put("value", 0);
                 return b;
             }));
-
+            add(Box.createVerticalStrut(10));
+            add(section("Condicionales"));
+            add(makeBtn("Aleatorio", () -> new ActionBlock(ActionType.RANDOM)));
+            add(makeBtn("Si variable...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.IF_VAR);
+                b.args.put("var", "var");
+                b.args.put("op", ">");
+                b.args.put("value", 0);
+                return b;
+            }));
+            add(makeBtn("Si global...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.IF_GLOBAL_VAR);
+                b.args.put("var", "global");
+                b.args.put("op", ">");
+                b.args.put("value", 0);
+                return b;
+            }));
+            add(makeBtn("Si probabilidad...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.IF_RANDOM_CHANCE);
+                b.args.put("prob", 0.5);
+                return b;
+            }));
             add(Box.createVerticalStrut(10));
             add(section("Acciones"));
             add(makeBtn("Mover...", () -> {
@@ -1503,28 +1524,6 @@ public class ScratchMVP {
             add(makeBtn("Opacidad...", () -> {
                 ActionBlock b = new ActionBlock(ActionType.CHANGE_OPACITY);
                 b.args.put("delta", -0.1);
-                return b;
-            }));
-            add(Box.createVerticalStrut(10));
-            add(section("Condicionales"));
-            add(makeBtn("Aleatorio", () -> new ActionBlock(ActionType.RANDOM)));
-            add(makeBtn("Si variable...", () -> {
-                ActionBlock b = new ActionBlock(ActionType.IF_VAR);
-                b.args.put("var", "var");
-                b.args.put("op", ">");
-                b.args.put("value", 0);
-                return b;
-            }));
-            add(makeBtn("Si global...", () -> {
-                ActionBlock b = new ActionBlock(ActionType.IF_GLOBAL_VAR);
-                b.args.put("var", "global");
-                b.args.put("op", ">");
-                b.args.put("value", 0);
-                return b;
-            }));
-            add(makeBtn("Si probabilidad...", () -> {
-                ActionBlock b = new ActionBlock(ActionType.IF_RANDOM_CHANCE);
-                b.args.put("prob", 0.5);
                 return b;
             }));
             add(Box.createVerticalStrut(10));
