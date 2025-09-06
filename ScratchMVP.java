@@ -757,7 +757,9 @@ public class ScratchMVP {
                     String tplId = (String) ab.args.get("templateId");
                     Entity tpl = tplId != null ? project.getById(tplId) : null;
                     if (tpl == null) tpl = e;
-                    Entity clone = stage.cloneEntity(tpl);
+                    // Al clonar entidades durante el juego siempre generamos un nuevo id
+                    // para evitar conflictos con la entidad original o con otras copias.
+                    Entity clone = stage.cloneEntity(tpl, false);
 
                     String mode = String.valueOf(ab.args.getOrDefault("mode", "MAP"));
                     if ("MAP".equals(mode)) {
@@ -2195,6 +2197,8 @@ public class ScratchMVP {
         final List<Entity> entities = new ArrayList<>();
         // Respaldo de scripts del editor para restaurar al volver
         Map<String, List<EventBlock>> editorScriptBackup = new HashMap<>();
+        // Mapa para rastrear la relación entre las copias del escenario y sus entidades originales
+        Map<String, String> cloneToOriginal = new HashMap<>();
         Entity dragEntity = null;
         Entity selectedEntity = null;
         Point dragOffset = null;
@@ -2227,9 +2231,15 @@ public class ScratchMVP {
                 editorScriptBackup.put(entry.getKey(), copy);
             }
             entities.clear();
+            cloneToOriginal.clear();
             for (Entity e : project.entities) {
-                entities.add(cloneEntity(e, true));
+                // duplicamos los scripts del template para uso temporal
                 project.scriptsByEntity.put(e.id, cloneScripts(e.id));
+                // creamos una copia con id único para el escenario
+                Entity c = cloneEntity(e, false);
+                entities.add(c);
+                cloneToOriginal.put(c.id, e.id);
+                project.scriptsByEntity.put(c.id, cloneScripts(e.id));
             }
             selectedEntity = null;
             if (widthSpin != null && heightSpin != null) {
@@ -2295,7 +2305,8 @@ public class ScratchMVP {
                 btnDelEntity.setBackground(null);
                 btnDelEntity.setOpaque(false);
                 for (Entity en : entities) {
-                    Entity orig = project.getById(en.id);
+                    String origId = cloneToOriginal.get(en.id);
+                    Entity orig = origId != null ? project.getById(origId) : null;
                     if (orig != null) {
                         orig.t.x = en.t.x;
                         orig.t.y = en.t.y;
@@ -2314,11 +2325,10 @@ public class ScratchMVP {
                         }
                         orig.vars.clear();
                         orig.vars.putAll(en.vars);
-                    } else {
-                        project.scriptsByEntity.remove(en.id);
                     }
                 }
                 entities.clear();
+                cloneToOriginal.clear();
                 selectedEntity = null;
                 project.scriptsByEntity.clear();
                 project.scriptsByEntity.putAll(editorScriptBackup);
@@ -2375,7 +2385,9 @@ public class ScratchMVP {
                 if (selName != null) {
                     Entity tpl = project.entities.stream().filter(en->en.name.equals(selName)).findFirst().orElse(null);
                     if (tpl != null) {
-                        Entity clone = cloneEntity(tpl);
+                        // Las nuevas entidades añadidas al escenario deben contar con un id único
+                        // por lo que la clonación siempre se realiza con keepId=false.
+                        Entity clone = cloneEntity(tpl, false);
                         String newName = JOptionPane.showInputDialog(this, "Nombre de la entidad", tpl.name);
                         if (newName != null && !newName.trim().isEmpty()) {
                             clone.name = newName.trim();
@@ -2413,7 +2425,22 @@ public class ScratchMVP {
 
         Entity cloneEntity(Entity src, boolean keepId) {
             Entity c = new Entity();
-            if (keepId) c.id = src.id;
+            if (keepId) {
+                // Verifica que no exista otra entidad con el mismo id cuando se solicita conservarlo
+                c.id = src.id;
+                boolean exists = entities.stream().anyMatch(en -> en.id.equals(c.id));
+                if (exists) {
+                    throw new IllegalStateException("Entity id already exists: " + c.id);
+                }
+            } else {
+                // Genera un id único para la copia evitando colisiones con el proyecto o el escenario
+                Set<String> used = new HashSet<>();
+                for (Entity en : entities) used.add(en.id);
+                for (Entity en : project.entities) used.add(en.id);
+                while (used.contains(c.id)) {
+                    c.id = UUID.randomUUID().toString();
+                }
+            }
             c.name = src.name;
             c.t.x = src.t.x;
             c.t.y = src.t.y;
