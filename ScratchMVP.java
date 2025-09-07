@@ -476,6 +476,11 @@ public class ScratchMVP {
                     if (onChange != null) onChange.run();
                 }
             });
+
+            // Inicializa la lista antes de registrar el listener para evitar que
+            // la selección por defecto dispare onChange mientras el panel aún
+            // se está construyendo (stageListPanel aún es null en EditorPanel).
+            refresh();
             list.addListSelectionListener(e -> {
                 if (!e.getValueIsAdjusting()) {
                     int idx = list.getSelectedIndex();
@@ -485,7 +490,6 @@ public class ScratchMVP {
                     }
                 }
             });
-            refresh();
         }
 
         void refresh() {
@@ -1183,7 +1187,9 @@ public class ScratchMVP {
             });
 
             btnToStage.addActionListener(e -> goStage.run());
-
+            // Al terminar de construir el panel actualizamos las vistas para
+            // reflejar el escenario seleccionado por defecto.
+            refreshAll();
         }
 
         void refreshAll() {
