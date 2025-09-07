@@ -1197,6 +1197,7 @@ public class ScratchMVP {
             });
 
             ChangeListener cl = e -> {
+                if (updating) return;
                 Entity sel = listPanel.getSelected();
                 if (sel != null) {
                     double newW = ((Number) wSpin.getValue()).doubleValue();
@@ -1302,9 +1303,9 @@ public class ScratchMVP {
                 };
                 updating = true;
                 shapeBox.setSelectedIndex(idx);
-                updating = false;
                 wSpin.setValue((int)sel.a.width);
                 hSpin.setValue((int)sel.a.height);
+                updating = false;
                 varModel.clear();
                 for (String v : sel.vars.keySet()) varModel.addElement(v);
             } else {
