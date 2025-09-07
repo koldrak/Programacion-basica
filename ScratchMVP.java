@@ -62,12 +62,23 @@ public class ScratchMVP {
         long moveUntilMs = 0;          // instante en ms para detener
     }
 
+    static class Scenario implements Serializable {
+        List<Entity> entities = new ArrayList<>();
+        Map<String, List<EventBlock>> scriptsByEntity = new HashMap<>();
+    }
+
     static class Project implements Serializable {
         List<Entity> entities = new ArrayList<>();
         // scripts por entidad (raíces de eventos)
         Map<String, List<EventBlock>> scriptsByEntity = new HashMap<>();
         Map<String, Double> globalVars = new HashMap<>();
         Dimension canvas = new Dimension(800, 600);
+        List<Scenario> scenarios = new ArrayList<>();
+        int currentScenario = 0;
+
+        Project() {
+            scenarios.add(new Scenario());
+        }
 
         Entity getById(String id) {
             for (Entity e : entities) if (e.id.equals(id)) return e;
@@ -145,6 +156,9 @@ public class ScratchMVP {
             target.scriptsByEntity = src.scriptsByEntity;
             target.globalVars = src.globalVars;
             target.canvas = src.canvas;
+            target.scenarios = src.scenarios != null ? src.scenarios : new ArrayList<>();
+            if (target.scenarios.isEmpty()) target.scenarios.add(new Scenario());
+            target.currentScenario = src.currentScenario;
         } catch (IOException | ClassNotFoundException ex) {
             ex.printStackTrace();
         }
@@ -154,7 +168,7 @@ public class ScratchMVP {
     enum BlockKind { EVENT, ACTION }
 
     enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
-    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, STOP }
+    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, NEXT_SCENE, PREV_SCENE, GOTO_SCENE, STOP }
 
     static abstract class Block implements Serializable {
         final String id = UUID.randomUUID().toString();
@@ -302,6 +316,12 @@ public class ScratchMVP {
                     }
                 case DELETE_ENTITY:
                     return "Acción: Borrar entidad";
+                case NEXT_SCENE:
+                    return "Acción: Escenario siguiente";
+                case PREV_SCENE:
+                    return "Acción: Escenario anterior";
+                case GOTO_SCENE:
+                    return "Acción: Ir a esc " + args.getOrDefault("index",1);
                 case STOP:
                     return "Acción: Detener";
             }
@@ -871,6 +891,12 @@ public class ScratchMVP {
                         return false;
                     }
                 }
+                case NEXT_SCENE -> stage.nextScenario();
+                case PREV_SCENE -> stage.prevScenario();
+                case GOTO_SCENE -> {
+                    int idx = Integer.parseInt(String.valueOf(ab.args.getOrDefault("index", 1))) - 1;
+                    stage.gotoScenarioIndex(idx);
+                }
                 case STOP -> {
                     e.moveTargetId = null;
                     e.moveVx = e.moveVy = 0;
@@ -927,7 +953,7 @@ public class ScratchMVP {
             stagePanel = new StagePanel(project, keysDown);
             editorPanel = new EditorPanel(project, () -> {
                 // al pulsar "Ir al Escenario"
-                stagePanel.loadFromProject();
+                stagePanel.loadCurrentScenario();
                 cards.show(root, "stage");
                 stagePanel.requestFocusInWindow();
                 stagePanel.repaint();
@@ -1531,6 +1557,13 @@ public class ScratchMVP {
             add(makeBtn("Mover a entidad...", () -> new ActionBlock(ActionType.MOVE_TO_ENTITY)));
             add(makeBtn("Crear entidad", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
             add(makeBtn("Eliminar entidad", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
+            add(makeBtn("Escenario siguiente", () -> new ActionBlock(ActionType.NEXT_SCENE)));
+            add(makeBtn("Escenario anterior", () -> new ActionBlock(ActionType.PREV_SCENE)));
+            add(makeBtn("Ir a escenario...", () -> {
+                ActionBlock b = new ActionBlock(ActionType.GOTO_SCENE);
+                b.args.put("index", 1);
+                return b;
+            }));
             add(makeBtn("Detener", () -> new ActionBlock(ActionType.STOP)));
 
             add(Box.createVerticalGlue());
@@ -2281,6 +2314,14 @@ public class ScratchMVP {
                             }
                         }
                     }
+                    case NEXT_SCENE -> {}
+                    case PREV_SCENE -> {}
+                    case GOTO_SCENE -> {
+                        String s = JOptionPane.showInputDialog(this, "Escenario:", ab.args.getOrDefault("index", 1));
+                        if (s != null && s.matches("\\d+")) {
+                            ab.args.put("index", Integer.parseInt(s));
+                        }
+                    }
                     case STOP -> {}
                 }
             }
@@ -2320,8 +2361,6 @@ public class ScratchMVP {
         final List<Entity> entities = new ArrayList<>();
         // Respaldo de scripts del editor para restaurar al volver
         Map<String, List<EventBlock>> editorScriptBackup = new HashMap<>();
-        // Mapa para rastrear la relación entre las copias del escenario y sus entidades originales
-        Map<String, String> cloneToOriginal = new HashMap<>();
         Entity dragEntity = null;
         Entity selectedEntity = null;
         Point dragOffset = null;
@@ -2330,6 +2369,8 @@ public class ScratchMVP {
         final List<Entity> snapshot = new ArrayList<>();
         Map<String, List<EventBlock>> scriptSnapshot = new HashMap<>();
         Map<String, Double> globalVarSnapshot = new HashMap<>();
+        int currentScenario = 0;
+        JSpinner scenarioSpin;
 
         int stageWidth() { return size.width - border * 2; }
         int stageHeight() { return size.height - border * 2; }
@@ -2346,23 +2387,41 @@ public class ScratchMVP {
             e.t.y += dy;
         }
 
-        void loadFromProject() {
+        void loadCurrentScenario() {
             editorScriptBackup.clear();
-            for (Map.Entry<String, List<EventBlock>> entry : project.scriptsByEntity.entrySet()) {
-                List<EventBlock> copy = new ArrayList<>();
-                for (EventBlock ev : entry.getValue()) copy.add((EventBlock) cloneBlock(ev));
-                editorScriptBackup.put(entry.getKey(), copy);
+            editorScriptBackup.putAll(project.scriptsByEntity);
+            if (project.scenarios.isEmpty()) project.scenarios.add(new Scenario());
+            switchScenario(project.currentScenario, false);
+            updateScenarioSpin();
+        }
+
+        void saveToScenario() {
+            if (project.scenarios.isEmpty()) project.scenarios.add(new Scenario());
+            Scenario sc = project.scenarios.get(currentScenario);
+            sc.entities = new ArrayList<>();
+            sc.scriptsByEntity = new HashMap<>();
+            for (Entity en : entities) {
+                sc.entities.add(cloneEntity(en, true));
+                sc.scriptsByEntity.put(en.id, cloneScripts(en.id));
             }
+        }
+
+        void loadFromScenario(int idx) {
+            if (idx < 0 || idx >= project.scenarios.size()) return;
+            currentScenario = idx;
+            project.currentScenario = idx;
+            project.scriptsByEntity.clear();
+            project.scriptsByEntity.putAll(editorScriptBackup);
             entities.clear();
-            cloneToOriginal.clear();
-            for (Entity e : project.entities) {
-                // duplicamos los scripts del template para uso temporal
-                project.scriptsByEntity.put(e.id, cloneScripts(e.id));
-                // creamos una copia con id único para el escenario
-                Entity c = cloneEntity(e, false);
+            Scenario sc = project.scenarios.get(idx);
+            for (Entity e : sc.entities) {
+                Entity c = cloneEntity(e, true);
                 entities.add(c);
-                cloneToOriginal.put(c.id, e.id);
-                project.scriptsByEntity.put(c.id, cloneScripts(e.id));
+                List<EventBlock> copy = new ArrayList<>();
+                for (EventBlock ev : sc.scriptsByEntity.getOrDefault(e.id, Collections.emptyList())) {
+                    copy.add((EventBlock) cloneBlock(ev));
+                }
+                project.scriptsByEntity.put(c.id, copy);
             }
             selectedEntity = null;
             if (widthSpin != null && heightSpin != null) {
@@ -2370,6 +2429,34 @@ public class ScratchMVP {
                 heightSpin.setValue(size.height);
             }
             repaint();
+        }
+
+        void switchScenario(int idx, boolean saveCurrent) {
+            if (saveCurrent) saveToScenario();
+            loadFromScenario(idx);
+            updateScenarioSpin();
+        }
+
+        void updateScenarioSpin() {
+            if (scenarioSpin != null) {
+                scenarioSpin.setModel(new SpinnerNumberModel(currentScenario + 1, 1, project.scenarios.size(), 1));
+            }
+        }
+
+        public void nextScenario() {
+            if (project.scenarios.isEmpty()) return;
+            switchScenario((currentScenario + 1) % project.scenarios.size(), false);
+        }
+
+        public void prevScenario() {
+            if (project.scenarios.isEmpty()) return;
+            switchScenario((currentScenario - 1 + project.scenarios.size()) % project.scenarios.size(), false);
+        }
+
+        public void gotoScenarioIndex(int idx) {
+            if (project.scenarios.isEmpty()) return;
+            if (idx < 0 || idx >= project.scenarios.size()) return;
+            switchScenario(idx, false);
         }
 
         StagePanel(Project p, Set<Integer> keysDown) {
@@ -2384,10 +2471,17 @@ public class ScratchMVP {
             JButton btnStop = new JButton("■ Detener");
             JButton btnAddEntity = new JButton("Agregar Entidad");
             JButton btnDelEntity = new JButton("Eliminar Entidad");
+            JButton btnNewScene = new JButton("Crear Escenario");
+            JButton btnDelScene = new JButton("Eliminar Escenario");
             bar.add(btnBack);
             bar.add(btnPlay); bar.add(btnStop);
             bar.add(Box.createHorizontalStrut(20));
             bar.add(btnAddEntity); bar.add(btnDelEntity);
+            bar.add(Box.createHorizontalStrut(20));
+            bar.add(new JLabel("Escenario:"));
+            scenarioSpin = new JSpinner(new SpinnerNumberModel(1,1,1,1));
+            bar.add(scenarioSpin);
+            bar.add(btnNewScene); bar.add(btnDelScene);
             bar.add(Box.createHorizontalStrut(20));
             bar.add(new JLabel("Borde:"));
             JSpinner borderSpin = new JSpinner(new SpinnerNumberModel(border, 0, 200, 5));
@@ -2420,6 +2514,25 @@ public class ScratchMVP {
             widthSpin.addChangeListener(szListener);
             heightSpin.addChangeListener(szListener);
 
+            scenarioSpin.addChangeListener(e -> {
+                int idx = ((Number) scenarioSpin.getValue()).intValue() - 1;
+                if (idx != currentScenario) {
+                    switchScenario(idx, !playing);
+                }
+            });
+            btnNewScene.addActionListener(e -> {
+                if (!playing) saveToScenario();
+                project.scenarios.add(new Scenario());
+                switchScenario(project.scenarios.size()-1, false);
+            });
+            btnDelScene.addActionListener(e -> {
+                if (project.scenarios.size() <= 1) return;
+                if (!playing) saveToScenario();
+                project.scenarios.remove(currentScenario);
+                int idx = Math.min(currentScenario, project.scenarios.size()-1);
+                switchScenario(idx, false);
+            });
+
             btnBack.addActionListener(e -> {
                 playing = false;
                 btnPlay.setBackground(null);
@@ -2427,31 +2540,8 @@ public class ScratchMVP {
                 deleteMode = false;
                 btnDelEntity.setBackground(null);
                 btnDelEntity.setOpaque(false);
-                for (Entity en : entities) {
-                    String origId = cloneToOriginal.get(en.id);
-                    Entity orig = origId != null ? project.getById(origId) : null;
-                    if (orig != null) {
-                        orig.t.x = en.t.x;
-                        orig.t.y = en.t.y;
-                        orig.t.rot = en.t.rot;
-                        orig.t.scaleX = en.t.scaleX;
-                        orig.t.scaleY = en.t.scaleY;
-                        orig.a.shape = en.a.shape;
-                        orig.a.color = en.a.color;
-                        orig.a.width = en.a.width;
-                        orig.a.height = en.a.height;
-                        orig.a.opacity = en.a.opacity;
-                        if (en.a.customPolygon != null) {
-                            orig.a.customPolygon = new Polygon(en.a.customPolygon.xpoints, en.a.customPolygon.ypoints, en.a.customPolygon.npoints);
-                        } else {
-                            orig.a.customPolygon = null;
-                        }
-                        orig.vars.clear();
-                        orig.vars.putAll(en.vars);
-                    }
-                }
+                saveToScenario();
                 entities.clear();
-                cloneToOriginal.clear();
                 selectedEntity = null;
                 project.scriptsByEntity.clear();
                 project.scriptsByEntity.putAll(editorScriptBackup);
