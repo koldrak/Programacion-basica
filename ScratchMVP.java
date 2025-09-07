@@ -1327,6 +1327,7 @@ public class ScratchMVP {
         JComboBox<String> shapeBox;
         JButton colorBtn;
         JSpinner wSpin, hSpin;
+        PreviewPanel preview;
         DefaultListModel<String> varModel;
         JList<String> varList;
         JSpinner varValue;
@@ -1341,6 +1342,9 @@ public class ScratchMVP {
             setBorder(new EmptyBorder(10,10,10,10));
 
             add(new JLabel("Inspector de Entidad"));
+            add(Box.createVerticalStrut(8));
+            preview = new PreviewPanel();
+            add(preview);
             add(Box.createVerticalStrut(8));
             shapeBox = new JComboBox<>(new String[]{"Rectángulo","Círculo","Triángulo","Pentágono","Hexágono","Estrella","Polígono personalizado"});
             colorBtn = new JButton("Color...");
@@ -1407,6 +1411,7 @@ public class ScratchMVP {
                     if (chosen != null) sel.a.color = chosen;
                     canvas.repaint();
                     propagateToScenarios(sel);
+                    preview.repaint();
                 }
             });
 
@@ -1435,6 +1440,7 @@ public class ScratchMVP {
                     sel.a.height = newH;
                     canvas.repaint();
                     propagateToScenarios(sel);
+                    preview.repaint();
                 }
             };
             wSpin.addChangeListener(cl);
@@ -1502,6 +1508,36 @@ public class ScratchMVP {
             return p;
         }
 
+        class PreviewPanel extends JPanel {
+            PreviewPanel() { setPreferredSize(new Dimension(120,120)); }
+            @Override protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Entity sel = listPanel.getSelected();
+                if (sel != null) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    double scale = Math.min((getWidth()-10)/sel.a.width, (getHeight()-10)/sel.a.height);
+                    Transform t = new Transform();
+                    t.x = getWidth()/2 - sel.a.width/2;
+                    t.y = getHeight()/2 - sel.a.height/2;
+                    t.scaleX = sel.t.scaleX * scale;
+                    t.scaleY = sel.t.scaleY * scale;
+                    t.rot = sel.t.rot;
+                    Entity tmp = new Entity();
+                    tmp.a = sel.a;
+                    tmp.t = t;
+                    Composite old = g2.getComposite();
+                    g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) sel.a.opacity));
+                    Shape s = buildShape(tmp);
+                    g2.setColor(sel.a.color);
+                    g2.fill(s);
+                    g2.setColor(Color.DARK_GRAY);
+                    g2.draw(s);
+                    g2.setComposite(old);
+                    g2.dispose();
+                }
+            }
+        }
+
         void refresh() {
             Entity sel = listPanel.getSelected();
             boolean en = sel != null;
@@ -1536,6 +1572,7 @@ public class ScratchMVP {
             if (vs) {
                 varValue.setValue(sel.vars.getOrDefault(name, 0.0));
             }
+            preview.repaint();
         }
 
         void propagateToScenarios(Entity tpl) {
