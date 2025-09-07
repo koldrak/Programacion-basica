@@ -44,6 +44,9 @@ public class ScratchMVP {
 
     static class Entity implements Serializable {
         String id = UUID.randomUUID().toString();
+        // Identificador de la entidad en la que se basó (plantilla)
+        // Para las entidades de proyecto, coincide con su propio id
+        String templateId = id;
         String name = "Entidad";
         Transform t = new Transform();
         Appearance a = new Appearance();
@@ -1178,6 +1181,12 @@ public class ScratchMVP {
                         newName = newName.trim();
                         if (!newName.isEmpty()) {
                             sel.name = newName;
+                            // Propagar cambio de nombre a entidades en escenarios basadas en esta plantilla
+                            for (Scenario sc : project.scenarios) {
+                                for (Entity en : sc.entities) {
+                                    if (sel.id.equals(en.templateId)) en.name = newName;
+                                }
+                            }
                             entityListPanel.refresh();
                             scriptCanvas.repaint();
                         }
@@ -1224,6 +1233,8 @@ public class ScratchMVP {
             Set<String> used = new HashSet<>();
             for (Entity en : project.entities) used.add(en.id);
             while (used.contains(c.id)) c.id = UUID.randomUUID().toString();
+            // como es una nueva plantilla, su templateId coincide con su propio id
+            c.templateId = c.id;
             c.name = src.name;
             c.t.x = src.t.x;
             c.t.y = src.t.y;
@@ -1384,6 +1395,7 @@ public class ScratchMVP {
                         }
                     }
                     canvas.repaint();
+                    propagateToScenarios(sel);
                     refresh();
                 }
             });
@@ -1394,6 +1406,7 @@ public class ScratchMVP {
                     Color chosen = JColorChooser.showDialog(this, "Elegir color", sel.a.color);
                     if (chosen != null) sel.a.color = chosen;
                     canvas.repaint();
+                    propagateToScenarios(sel);
                 }
             });
 
@@ -1421,6 +1434,7 @@ public class ScratchMVP {
                     sel.a.width = newW;
                     sel.a.height = newH;
                     canvas.repaint();
+                    propagateToScenarios(sel);
                 }
             };
             wSpin.addChangeListener(cl);
@@ -1443,6 +1457,7 @@ public class ScratchMVP {
                 if (sel != null && name != null) {
                     sel.vars.put(name, ((Number)varValue.getValue()).doubleValue());
                     canvas.repaint();
+                    propagateToScenarios(sel);
                 }
             });
             btnAddVar.addActionListener(ev -> {
@@ -1460,6 +1475,7 @@ public class ScratchMVP {
                             double val = ((Number)valSpin.getValue()).doubleValue();
                             sel.vars.put(name, val);
                             refresh();
+                            propagateToScenarios(sel);
                         }
                     }
                 }
@@ -1470,6 +1486,7 @@ public class ScratchMVP {
                 if (sel != null && name != null) {
                     sel.vars.remove(name);
                     refresh();
+                    propagateToScenarios(sel);
                 }
             });
 
@@ -1518,6 +1535,30 @@ public class ScratchMVP {
             btnDelVar.setEnabled(vs);
             if (vs) {
                 varValue.setValue(sel.vars.getOrDefault(name, 0.0));
+            }
+        }
+
+        void propagateToScenarios(Entity tpl) {
+            for (Scenario sc : project.scenarios) {
+                for (Entity en : sc.entities) {
+                    if (tpl.id.equals(en.templateId)) {
+                        en.a.shape = tpl.a.shape;
+                        en.a.color = tpl.a.color;
+                        en.a.width = tpl.a.width;
+                        en.a.height = tpl.a.height;
+                        en.a.opacity = tpl.a.opacity;
+                        if (tpl.a.customPolygon != null) {
+                            en.a.customPolygon = new Polygon(
+                                    tpl.a.customPolygon.xpoints,
+                                    tpl.a.customPolygon.ypoints,
+                                    tpl.a.customPolygon.npoints);
+                        } else {
+                            en.a.customPolygon = null;
+                        }
+                        en.vars.clear();
+                        en.vars.putAll(tpl.vars);
+                    }
+                }
             }
         }
 
@@ -2913,6 +2954,7 @@ public class ScratchMVP {
             if (keepId) {
                 // Verifica que no exista otra entidad diferente a 'src' con el mismo id
                 c.id = src.id;
+                c.templateId = src.templateId;
                 boolean exists = entities.stream().anyMatch(en -> en != src && en.id.equals(c.id))
                         || project.entities.stream().anyMatch(en -> en != src && en.id.equals(c.id));
                 if (exists) {
@@ -2926,6 +2968,7 @@ public class ScratchMVP {
                 while (used.contains(c.id)) {
                     c.id = UUID.randomUUID().toString();
                 }
+                c.templateId = src.templateId;
             }
             c.name = src.name;
             c.t.x = src.t.x;
