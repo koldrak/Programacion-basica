@@ -1001,9 +1001,13 @@ public class ScratchMVP {
             JButton btnNewEntity = new JButton("Nueva Entidad");
             JButton btnDelEntity = new JButton("Eliminar Entidad");
             JButton btnToStage   = new JButton("Ir al Escenario ▶");
+            JButton btnCopyEntity = new JButton("Copiar Entidad");
+            JButton btnRenameEntity = new JButton("Renombrar Entidad");
             JButton btnSaveProj  = new JButton("Guardar");
             JButton btnLoadProj  = new JButton("Cargar");
             bar.add(btnNewEntity);
+            bar.add(btnCopyEntity);
+            bar.add(btnRenameEntity);
             bar.add(btnDelEntity);
             bar.add(Box.createHorizontalStrut(20));
             bar.add(btnToStage);
@@ -1057,6 +1061,34 @@ public class ScratchMVP {
                 }
             });
 
+            btnCopyEntity.addActionListener(e -> {
+                Entity sel = entityListPanel.getSelected();
+                if (sel != null) {
+                    Entity copy = cloneEntity(sel);
+                    copy.name = sel.name + " copia";
+                    project.entities.add(copy);
+                    project.scriptsByEntity.put(copy.id, cloneScripts(sel.id));
+                    entityListPanel.refresh();
+                    entityListPanel.select(copy);
+                    scriptCanvas.repaint();
+                }
+            });
+
+            btnRenameEntity.addActionListener(e -> {
+                Entity sel = entityListPanel.getSelected();
+                if (sel != null) {
+                    String newName = JOptionPane.showInputDialog(this, "Nuevo nombre de la entidad", sel.name);
+                    if (newName != null) {
+                        newName = newName.trim();
+                        if (!newName.isEmpty()) {
+                            sel.name = newName;
+                            entityListPanel.refresh();
+                            scriptCanvas.repaint();
+                        }
+                    }
+                }
+            });
+
             btnDelEntity.addActionListener(e -> {
                 Entity sel = entityListPanel.getSelected();
                 if (sel != null) {
@@ -1082,11 +1114,6 @@ public class ScratchMVP {
             });
 
             btnToStage.addActionListener(e -> goStage.run());
-
-            // Estado inicial
-            if (project.entities.isEmpty()) {
-                btnNewEntity.doClick();
-            }
         }
 
         void refreshAll() {
@@ -1094,6 +1121,58 @@ public class ScratchMVP {
             globalVarPanel.refresh();
             scriptCanvas.repaint();
             inspectorPanel.refresh();
+        }
+
+        Entity cloneEntity(Entity src) {
+            Entity c = new Entity();
+            Set<String> used = new HashSet<>();
+            for (Entity en : project.entities) used.add(en.id);
+            while (used.contains(c.id)) c.id = UUID.randomUUID().toString();
+            c.name = src.name;
+            c.t.x = src.t.x;
+            c.t.y = src.t.y;
+            c.t.rot = src.t.rot;
+            c.a.shape = src.a.shape;
+            c.a.color = src.a.color;
+            c.a.width = src.a.width;
+            c.a.height = src.a.height;
+            c.a.opacity = src.a.opacity;
+            if (src.a.customPolygon != null) {
+                c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
+            }
+            c.vars.putAll(src.vars);
+            return c;
+        }
+
+        List<EventBlock> cloneScripts(String srcId) {
+            List<EventBlock> roots = project.scriptsByEntity.getOrDefault(srcId, Collections.emptyList());
+            List<EventBlock> out = new ArrayList<>();
+            for (EventBlock ev : roots) {
+                out.add((EventBlock) cloneBlock(ev));
+            }
+            return out;
+        }
+
+        Block cloneBlock(Block b) {
+            if (b == null) return null;
+            Block copy;
+            if (b instanceof EventBlock ev) {
+                EventBlock ev2 = new EventBlock(ev.type);
+                ev2.args.putAll(ev.args);
+                for (Block extra : ev.extraNext) ev2.extraNext.add(cloneBlock(extra));
+                copy = ev2;
+            } else if (b instanceof ActionBlock ab) {
+                ActionBlock ab2 = new ActionBlock(ab.type);
+                ab2.args.putAll(ab.args);
+                for (Block extra : ab.extraNext) ab2.extraNext.add(cloneBlock(extra));
+                copy = ab2;
+            } else {
+                return null;
+            }
+            copy.x = b.x;
+            copy.y = b.y;
+            copy.next = cloneBlock(b.next);
+            return copy;
         }
     }
 
