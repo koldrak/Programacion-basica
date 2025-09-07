@@ -1526,7 +1526,7 @@ public class ScratchMVP {
                 b.args.put("delta", -0.1);
                 return b;
             }));
-            add(Box.createVerticalStrut(10));
+          
             add(makeBtn("Mover a entidad...", () -> new ActionBlock(ActionType.MOVE_TO_ENTITY)));
             add(makeBtn("Crear entidad", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
             add(makeBtn("Eliminar entidad", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
