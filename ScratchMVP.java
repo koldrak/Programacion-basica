@@ -56,6 +56,7 @@ public class ScratchMVP {
         // Movimiento gradual hacia otra entidad
         String moveTargetId = null;
         double moveSpeed = 0;
+        boolean moveFollow = false;
 
         // Movimiento por velocidad/dirección durante un tiempo
         double moveVx = 0, moveVy = 0; // velocidad en px/s
@@ -167,7 +168,7 @@ public class ScratchMVP {
     // ====== BLOQUES ======
     enum BlockKind { EVENT, ACTION }
 
-    enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
+    enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_ENTITY_NEAR, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
     enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, NEXT_SCENE, PREV_SCENE, GOTO_SCENE, STOP }
 
     static abstract class Block implements Serializable {
@@ -222,6 +223,12 @@ public class ScratchMVP {
                     if (names == null || names.isEmpty()) return "Evento: Colisión con cualquiera";
                     return "Evento: Colisión con " + String.join(", ", names);
                 }
+                case ON_ENTITY_NEAR:
+                {
+                    String name = String.valueOf(args.getOrDefault("targetName", "entidad"));
+                    double radius = ((Number) args.getOrDefault("radius", 50.0)).doubleValue();
+                    return "Evento: Se acerca " + name + " r=" + radius;
+                }
                 case ON_WHILE_VAR:
                 {
                     String var = String.valueOf(args.getOrDefault("var","var"));
@@ -256,6 +263,13 @@ public class ScratchMVP {
                     String dir = String.valueOf(args.getOrDefault("dir", "derecha"));
                     double speed = ((Number) args.getOrDefault("speed", 100.0)).doubleValue();
                     double secs = ((Number) args.getOrDefault("secs", 1.0)).doubleValue();
+                    if ("seguir".equals(dir)) {
+                        String name = String.valueOf(args.getOrDefault("targetName", "entidad"));
+                        return "Acción: Seguir a " + name + " v=" + speed;
+                    } else if ("lejos".equals(dir)) {
+                        String name = String.valueOf(args.getOrDefault("targetName", "entidad"));
+                        return "Acción: Mover lejos de " + name + " v=" + speed + " t=" + secs + "s";
+                    }
                     return "Acción: Mover " + dir + " v=" + speed + " t=" + secs + "s";
                 case SET_COLOR:
                     return "Acción: Color";
@@ -489,7 +503,7 @@ public class ScratchMVP {
                         if (dist <= step) {
                             en.t.x = target.t.x;
                             en.t.y = target.t.y;
-                            en.moveTargetId = null;
+                            if (!en.moveFollow) en.moveTargetId = null;
                         } else if (dist > 0) {
                             en.t.x += dx / dist * step;
                             en.t.y += dy / dist * step;
@@ -630,6 +644,38 @@ public class ScratchMVP {
                 }
             }
 
+            // ON_ENTITY_NEAR
+            for (Entity en : new ArrayList<>(stage.entities)) {
+                List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
+                for (EventBlock ev : roots) {
+                    if (ev.type == EventType.ON_ENTITY_NEAR) {
+                        String targetId = (String) ev.args.get("targetId");
+                        Entity target = targetId == null ? null : new ArrayList<>(stage.entities).stream()
+                                .filter(o -> o.id.equals(targetId)).findFirst().orElse(null);
+                        if (target == null) {
+                            String targetName = (String) ev.args.get("targetName");
+                            for (Entity other : new ArrayList<>(stage.entities)) {
+                                if (other == en) continue;
+                                if (targetName != null && !targetName.equals(other.name)) continue;
+                                target = other;
+                                break;
+                            }
+                        }
+                        if (target != null) {
+                            double ex = en.t.x + en.a.width / 2;
+                            double ey = en.t.y + en.a.height / 2;
+                            double tx = target.t.x + target.a.width / 2;
+                            double ty = target.t.y + target.a.height / 2;
+                            double dist = Math.hypot(ex - tx, ey - ty);
+                            double radius = ((Number) ev.args.getOrDefault("radius", 50.0)).doubleValue();
+                            if (dist <= radius) {
+                                triggerEvent(en, ev);
+                            }
+                        }
+                    }
+                }
+            }
+
             // limpiar "decir" expirado
             long t = System.currentTimeMillis();
             for (Entity en : new ArrayList<>(stage.entities)) {
@@ -688,17 +734,66 @@ public class ScratchMVP {
                     String dir = String.valueOf(ab.args.getOrDefault("dir", "derecha"));
                     double speed = Double.parseDouble(String.valueOf(ab.args.getOrDefault("speed", 100.0)));
                     double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
-                    double vx = 0, vy = 0;
-                    switch (dir) {
-                        case "izquierda" -> vx = -speed;
-                        case "derecha" -> vx = speed;
-                        case "arriba" -> vy = -speed;
-                        case "abajo" -> vy = speed;
+                    if ("lejos".equals(dir)) {
+                        String targetId = (String) ab.args.get("targetId");
+                        Entity target = targetId == null ? null : new ArrayList<>(stage.entities).stream()
+                                .filter(o -> o.id.equals(targetId)).findFirst().orElse(null);
+                        if (target == null) {
+                            String targetName = (String) ab.args.get("targetName");
+                            for (Entity other : new ArrayList<>(stage.entities)) {
+                                if (other == e) continue;
+                                if (targetName != null && !targetName.equals(other.name)) continue;
+                                target = other;
+                                break;
+                            }
+                        }
+                        double vx = 0, vy = 0;
+                        if (target != null) {
+                            double dx = e.t.x - target.t.x;
+                            double dy = e.t.y - target.t.y;
+                            double dist = Math.hypot(dx, dy);
+                            if (dist != 0) {
+                                vx = dx / dist * speed;
+                                vy = dy / dist * speed;
+                            }
+                        }
+                        e.moveTargetId = null;
+                        e.moveFollow = false;
+                        e.moveVx = vx;
+                        e.moveVy = vy;
+                        e.moveUntilMs = System.currentTimeMillis() + (long) (secs * 1000);
+                    } else if ("seguir".equals(dir)) {
+                        String targetId = (String) ab.args.get("targetId");
+                        Entity target = targetId == null ? null : new ArrayList<>(stage.entities).stream()
+                                .filter(o -> o.id.equals(targetId)).findFirst().orElse(null);
+                        if (target == null) {
+                            String targetName = (String) ab.args.get("targetName");
+                            for (Entity other : new ArrayList<>(stage.entities)) {
+                                if (other == e) continue;
+                                if (targetName != null && !targetName.equals(other.name)) continue;
+                                target = other;
+                                break;
+                            }
+                        }
+                        if (target != null) {
+                            e.moveTargetId = target.id;
+                            e.moveSpeed = speed;
+                            e.moveFollow = true;
+                        }
+                    } else {
+                        double vx = 0, vy = 0;
+                        switch (dir) {
+                            case "izquierda" -> vx = -speed;
+                            case "derecha" -> vx = speed;
+                            case "arriba" -> vy = -speed;
+                            case "abajo" -> vy = speed;
+                        }
+                        e.moveTargetId = null;
+                        e.moveFollow = false;
+                        e.moveVx = vx;
+                        e.moveVy = vy;
+                        e.moveUntilMs = System.currentTimeMillis() + (long) (secs * 1000);
                     }
-                    e.moveTargetId = null;
-                    e.moveVx = vx;
-                    e.moveVy = vy;
-                    e.moveUntilMs = System.currentTimeMillis() + (long) (secs * 1000);
                 }
                 case SET_COLOR -> {
                     Color chosenColor = (Color) ab.args.getOrDefault("color", new Color(0xE74C3C));
@@ -810,6 +905,7 @@ public class ScratchMVP {
                     if (target != null) {
                         e.moveTargetId = target.id;
                         e.moveSpeed = Double.parseDouble(String.valueOf(ab.args.getOrDefault("speed", 100.0)));
+                        e.moveFollow = false;
                     }
                 }
                 case SPAWN_ENTITY -> {
@@ -1525,6 +1621,11 @@ public class ScratchMVP {
                 return b;
             }));
             add(makeBtn("Colisión con...", () -> new EventBlock(EventType.ON_COLLIDE)));
+            add(makeBtn("Se acerca entidad...", () -> {
+                EventBlock b = new EventBlock(EventType.ON_ENTITY_NEAR);
+                b.args.put("radius", 50.0);
+                return b;
+            }));
             add(makeBtn("Mientras Var entidad", () -> {
                 EventBlock b = new EventBlock(EventType.ON_WHILE_VAR);
                 b.args.put("var", "var");
@@ -2050,21 +2151,53 @@ public class ScratchMVP {
                         ev.args.put("targetIds", ids);
                         ev.args.put("targetNames", names);
                     }
+                } else if (ev.type == EventType.ON_ENTITY_NEAR) {
+                    Entity currentEnt = canvas.listPanel.getSelected();
+                    java.util.List<String> names = new ArrayList<>();
+                    for (Entity en : canvas.project.entities) {
+                        if (currentEnt != null && en.id.equals(currentEnt.id)) continue;
+                        names.add(en.name);
+                    }
+                    if (names.isEmpty()) {
+                        JOptionPane.showMessageDialog(this, "No hay entidades", "Se acerca entidad", JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        String currentName = String.valueOf(ev.args.getOrDefault("targetName", names.get(0)));
+                        if (!names.contains(currentName)) names.add(0, currentName);
+                        JSpinner entSpin = new JSpinner(new SpinnerListModel(names));
+                        entSpin.setValue(currentName);
+                        double curRad = ((Number) ev.args.getOrDefault("radius", 50.0)).doubleValue();
+                        JSpinner radSpin = new JSpinner(new SpinnerNumberModel(curRad, 1.0, 1000.0, 1.0));
+                        JPanel pan2 = new JPanel(new GridLayout(2,2));
+                        pan2.add(new JLabel("Entidad")); pan2.add(entSpin);
+                        pan2.add(new JLabel("Radio")); pan2.add(radSpin);
+                        int r2 = JOptionPane.showConfirmDialog(this, pan2, "Se acerca entidad", JOptionPane.OK_CANCEL_OPTION);
+                        if (r2 == JOptionPane.OK_OPTION) {
+                            String nameSel = (String) entSpin.getValue();
+                            Entity target = canvas.project.entities.stream().filter(en -> en.name.equals(nameSel)).findFirst().orElse(null);
+                            if (target != null) {
+                                ev.args.put("targetId", target.id);
+                                ev.args.put("targetName", target.name);
+                            }
+                            ev.args.put("radius", ((Number) radSpin.getValue()).doubleValue());
+                        }
+                    }
                 }
             } else if (block instanceof ActionBlock) {
                 ActionBlock ab = (ActionBlock) block;
                 switch (ab.type) {
                     case MOVE_BY -> {
-                        String[] dirs = {"Derecha","Izquierda","Arriba","Abajo"};
+                        String[] dirs = {"Derecha","Izquierda","Arriba","Abajo","Lejos de...","Seguir a..."};
                         String curDir = String.valueOf(ab.args.getOrDefault("dir", "derecha"));
                         int selDir = switch (curDir) {
                             case "izquierda" -> 1;
                             case "arriba" -> 2;
                             case "abajo" -> 3;
+                            case "lejos" -> 4;
+                            case "seguir" -> 5;
                             default -> 0;
                         };
-                        int dir = JOptionPane.showOptionDialog(this, "Dirección", "Dirección", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, dirs, dirs[selDir]);
-                        if (dir >= 0) {
+                        int dir = JOptionPane.showOptionDialog(this, "Dirección", "Dirección", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, dirs, dirs[Math.min(selDir, dirs.length-1)]);
+                        if (dir == 0 || dir == 1 || dir == 2 || dir == 3) {
                             String spd = JOptionPane.showInputDialog(this, "Velocidad (px/s):", ab.args.getOrDefault("speed", 100.0));
                             String dur = JOptionPane.showInputDialog(this, "Duración (s):", ab.args.getOrDefault("secs", 1.0));
                             try {
@@ -2079,6 +2212,66 @@ public class ScratchMVP {
                                 ab.args.put("speed", vs);
                                 ab.args.put("secs", se);
                             } catch (Exception ignored) {}
+                        } else if (dir == 4) {
+                            if (canvas.project.entities.isEmpty()) break;
+                            java.util.List<String> names = new ArrayList<>();
+                            Entity currentEnt = canvas.listPanel.getSelected();
+                            for (Entity en : canvas.project.entities) {
+                                if (currentEnt != null && en.id.equals(currentEnt.id)) continue;
+                                names.add(en.name);
+                            }
+                            String currentName = String.valueOf(ab.args.getOrDefault("targetName", names.get(0)));
+                            if (!names.contains(currentName)) names.add(0, currentName);
+                            JSpinner entSpin = new JSpinner(new SpinnerListModel(names));
+                            entSpin.setValue(currentName);
+                            double curSpeed = Double.parseDouble(String.valueOf(ab.args.getOrDefault("speed", 100.0)));
+                            JSpinner speedSpin = new JSpinner(new SpinnerNumberModel(curSpeed, 1.0, 1000.0, 10.0));
+                            double curSecs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
+                            JSpinner secsSpin = new JSpinner(new SpinnerNumberModel(curSecs, 0.1, 1000.0, 0.1));
+                            JPanel pan = new JPanel(new GridLayout(3,2));
+                            pan.add(new JLabel("Entidad")); pan.add(entSpin);
+                            pan.add(new JLabel("Velocidad")); pan.add(speedSpin);
+                            pan.add(new JLabel("Segundos")); pan.add(secsSpin);
+                            int r = JOptionPane.showConfirmDialog(this, pan, "Mover lejos de", JOptionPane.OK_CANCEL_OPTION);
+                            if (r == JOptionPane.OK_OPTION) {
+                                String name = (String) entSpin.getValue();
+                                Entity tpl = canvas.project.entities.stream().filter(en -> en.name.equals(name)).findFirst().orElse(null);
+                                if (tpl != null) {
+                                    ab.args.put("targetId", tpl.id);
+                                    ab.args.put("targetName", tpl.name);
+                                }
+                                ab.args.put("dir", "lejos");
+                                ab.args.put("speed", ((Number) speedSpin.getValue()).doubleValue());
+                                ab.args.put("secs", ((Number) secsSpin.getValue()).doubleValue());
+                            }
+                        } else if (dir == 5) {
+                            if (canvas.project.entities.isEmpty()) break;
+                            java.util.List<String> names = new ArrayList<>();
+                            Entity currentEnt = canvas.listPanel.getSelected();
+                            for (Entity en : canvas.project.entities) {
+                                if (currentEnt != null && en.id.equals(currentEnt.id)) continue;
+                                names.add(en.name);
+                            }
+                            String currentName = String.valueOf(ab.args.getOrDefault("targetName", names.get(0)));
+                            if (!names.contains(currentName)) names.add(0, currentName);
+                            JSpinner entSpin = new JSpinner(new SpinnerListModel(names));
+                            entSpin.setValue(currentName);
+                            double curSpeed = Double.parseDouble(String.valueOf(ab.args.getOrDefault("speed", 100.0)));
+                            JSpinner speedSpin = new JSpinner(new SpinnerNumberModel(curSpeed, 1.0, 1000.0, 10.0));
+                            JPanel pan = new JPanel(new GridLayout(2,2));
+                            pan.add(new JLabel("Entidad")); pan.add(entSpin);
+                            pan.add(new JLabel("Velocidad")); pan.add(speedSpin);
+                            int r = JOptionPane.showConfirmDialog(this, pan, "Seguir a entidad", JOptionPane.OK_CANCEL_OPTION);
+                            if (r == JOptionPane.OK_OPTION) {
+                                String name = (String) entSpin.getValue();
+                                Entity tpl = canvas.project.entities.stream().filter(en -> en.name.equals(name)).findFirst().orElse(null);
+                                if (tpl != null) {
+                                    ab.args.put("targetId", tpl.id);
+                                    ab.args.put("targetName", tpl.name);
+                                }
+                                ab.args.put("dir", "seguir");
+                                ab.args.put("speed", ((Number) speedSpin.getValue()).doubleValue());
+                            }
                         }
                     }
                     case SET_COLOR -> {
