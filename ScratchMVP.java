@@ -324,6 +324,8 @@ public class ScratchMVP {
                         Object dObj = args.getOrDefault("distance", 0);
                         double dist = dObj instanceof Number ? ((Number) dObj).doubleValue() : 0.0;
                         return "Acción: Crear " + (name != null ? name : "entidad") + " " + dirSpawn + " d=" + dist;
+                    } else if ("RAND".equals(mode)) {
+                        return "Acción: Crear " + (name != null ? name : "entidad") + " al azar";
                     } else {
                         Object xObj = args.getOrDefault("x", 0);
                         Object yObj = args.getOrDefault("y", 0);
@@ -925,7 +927,7 @@ public class ScratchMVP {
                         double y = ((Number) ab.args.getOrDefault("y", clone.t.y)).doubleValue();
                         clone.t.x = x;
                         clone.t.y = y;
-                    } else {
+                    } else if ("REL".equals(mode)) {
                         String dir = String.valueOf(ab.args.getOrDefault("dir", "abajo"));
                         double dist = ((Number) ab.args.getOrDefault("distance", 0.0)).doubleValue();
                         switch (dir.toLowerCase(Locale.ROOT)) {
@@ -946,6 +948,11 @@ public class ScratchMVP {
                                 clone.t.y = e.t.y + e.a.height + dist;
                             }
                         }
+                    } else {
+                        double maxX = Math.max(0, stage.stageWidth() - clone.a.width);
+                        double maxY = Math.max(0, stage.stageHeight() - clone.a.height);
+                        clone.t.x = Math.random() * maxX;
+                        clone.t.y = Math.random() * maxY;
                     }
                     stage.clampEntity(clone);
 
@@ -2656,10 +2663,12 @@ public class ScratchMVP {
                         String mode = String.valueOf(ab.args.getOrDefault("mode", "MAP"));
                         JRadioButton mapBtn = new JRadioButton("Coordenadas del mapa");
                         JRadioButton relBtn = new JRadioButton("Relativas a la entidad");
+                        JRadioButton randBtn = new JRadioButton("Lugar aleatorio");
                         ButtonGroup grp = new ButtonGroup();
-                        grp.add(mapBtn); grp.add(relBtn);
+                        grp.add(mapBtn); grp.add(relBtn); grp.add(randBtn);
                         mapBtn.setSelected("MAP".equals(mode));
                         relBtn.setSelected("REL".equals(mode));
+                        randBtn.setSelected("RAND".equals(mode));
 
                         double curX = ((Number) ab.args.getOrDefault("x", 0.0)).doubleValue();
                         double curY = ((Number) ab.args.getOrDefault("y", 0.0)).doubleValue();
@@ -2680,11 +2689,16 @@ public class ScratchMVP {
 
                         CardLayout card = new CardLayout();
                         JPanel cardPanel = new JPanel(card);
+                        JPanel randPanel = new JPanel();
                         cardPanel.add(mapPanel, "MAP");
                         cardPanel.add(relPanel, "REL");
-                        card.show(cardPanel, "MAP".equals(mode) ? "MAP" : "REL");
+                        cardPanel.add(randPanel, "RAND");
+                        if ("REL".equals(mode)) card.show(cardPanel, "REL");
+                        else if ("RAND".equals(mode)) card.show(cardPanel, "RAND");
+                        else card.show(cardPanel, "MAP");
                         mapBtn.addActionListener(ev -> card.show(cardPanel, "MAP"));
                         relBtn.addActionListener(ev -> card.show(cardPanel, "REL"));
+                        randBtn.addActionListener(ev -> card.show(cardPanel, "RAND"));
 
                         JPanel pan = new JPanel();
                         pan.setLayout(new BoxLayout(pan, BoxLayout.Y_AXIS));
@@ -2694,6 +2708,7 @@ public class ScratchMVP {
                         pan.add(entPanel);
                         pan.add(mapBtn);
                         pan.add(relBtn);
+                        pan.add(randBtn);
                         pan.add(cardPanel);
 
                         int r = JOptionPane.showConfirmDialog(this, pan, "Crear entidad", JOptionPane.OK_CANCEL_OPTION);
@@ -2709,10 +2724,12 @@ public class ScratchMVP {
                                 ab.args.put("mode", "MAP");
                                 ab.args.put("x", ((Number) xSpin.getValue()).doubleValue());
                                 ab.args.put("y", ((Number) ySpin.getValue()).doubleValue());
-                            } else {
+                            } else if (relBtn.isSelected()) {
                                 ab.args.put("mode", "REL");
                                 ab.args.put("dir", dirBox.getSelectedItem());
                                 ab.args.put("distance", ((Number) distSpin.getValue()).doubleValue());
+                            } else {
+                                ab.args.put("mode", "RAND");
                             }
                         }
                     }
