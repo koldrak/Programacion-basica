@@ -1905,6 +1905,7 @@ public class ScratchMVP {
                 project.scriptsByEntity.computeIfAbsent(sel.id, k->new ArrayList<>()).add((EventBlock)block);
             }
             repaint();
+            scriptChanged();
         }
 
         int getBlockCountFor(Entity e) {
@@ -2044,6 +2045,7 @@ public class ScratchMVP {
                     tail.next = candidate.block;
                 }
                 repaint();
+                scriptChanged();
             }
         }
 
@@ -2063,6 +2065,56 @@ public class ScratchMVP {
 
             // reconstruir vistas
             redrawForSelected();
+            scriptChanged();
+        }
+
+        void scriptChanged() {
+            Entity sel = listPanel.getSelected();
+            if (sel == null) return;
+            for (Scenario sc : project.scenarios) {
+                for (Entity en : sc.entities) {
+                    if (sel.id.equals(en.templateId)) {
+                        sc.scriptsByEntity.put(en.id, cloneScripts(sel.id));
+                    }
+                }
+            }
+        }
+
+        List<EventBlock> cloneScripts(String srcId) {
+            List<EventBlock> roots = project.scriptsByEntity.getOrDefault(srcId, new ArrayList<>());
+            List<EventBlock> out = new ArrayList<>();
+            for (EventBlock ev : roots) {
+                out.add((EventBlock) cloneBlock(ev));
+            }
+            return out;
+        }
+
+        Block cloneBlock(Block b) {
+            if (b == null) return null;
+            Block copy;
+            if (b instanceof EventBlock) {
+                EventBlock ev = (EventBlock) b;
+                EventBlock ev2 = new EventBlock(ev.type);
+                ev2.args.putAll(ev.args);
+                for (Block extra : ev.extraNext) ev2.extraNext.add(cloneBlock(extra));
+                copy = ev2;
+            } else if (b instanceof ActionBlock) {
+                ActionBlock ab = (ActionBlock) b;
+                ActionBlock ab2 = new ActionBlock(ab.type);
+                ab2.args.putAll(ab.args);
+                if (ab.type == ActionType.RANDOM || ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE) {
+                    for (Block extra : ab.extraNext) ab2.extraNext.add(cloneBlock(extra));
+                }
+                copy = ab2;
+            } else {
+                copy = null;
+            }
+            if (copy != null) {
+                copy.x = b.x;
+                copy.y = b.y;
+                copy.next = cloneBlock(b.next);
+            }
+            return copy;
         }
     }
 
@@ -2674,6 +2726,7 @@ public class ScratchMVP {
                     }
                     case STOP -> {}
                 }
+                canvas.scriptChanged();
             }
         }
 
