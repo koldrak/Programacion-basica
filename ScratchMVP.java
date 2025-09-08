@@ -1666,52 +1666,52 @@ public class ScratchMVP {
             add(Box.createVerticalStrut(6));
 
             add(section("Eventos"));
-            add(makeBtn("Al iniciar", () -> new EventBlock(EventType.ON_START)));
-            add(makeBtn("Al aparecer", () -> new EventBlock(EventType.ON_APPEAR)));
-            add(makeBtn("Cada (ms)...", () -> {
+            add(makeBtn("Al iniciar", "Se ejecuta una vez al comenzar la escena.", () -> new EventBlock(EventType.ON_START)));
+            add(makeBtn("Al aparecer", "Se ejecuta cuando la entidad aparece en la escena.", () -> new EventBlock(EventType.ON_APPEAR)));
+            add(makeBtn("Cada (ms)...", "Repite las acciones cada intervalo en milisegundos.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_TICK);
                 b.args.put("intervalMs", 500);
                 return b;
             }));
-            add(makeBtn("Tecla ↓ ...", () -> {
+            add(makeBtn("Tecla ↓ ...", "Se ejecuta al presionar la tecla seleccionada.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_KEY_DOWN);
                 b.args.put("keyCode", KeyEvent.VK_RIGHT);
                 return b;
             }));
-            add(makeBtn("Clic ratón", () -> {
+            add(makeBtn("Clic ratón", "Se ejecuta al hacer clic con el ratón.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_MOUSE);
                 b.args.put("button", MouseEvent.BUTTON1);
                 return b;
             }));
-            add(makeBtn("Toca borde", () -> new EventBlock(EventType.ON_EDGE)));
-            add(makeBtn("Var de entidad >o<", () -> {
+            add(makeBtn("Toca borde", "Se ejecuta cuando la entidad toca el borde del escenario.", () -> new EventBlock(EventType.ON_EDGE)));
+            add(makeBtn("Var de entidad >o<", "Se dispara al cumplirse una condición sobre una variable de la entidad.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_VAR_CHANGE);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Var global >o<", () -> {
+            add(makeBtn("Var global >o<", "Se dispara al cumplirse una condición sobre una variable global.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_GLOBAL_VAR_CHANGE);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Colisión con...", () -> new EventBlock(EventType.ON_COLLIDE)));
-            add(makeBtn("Se acerca entidad...", () -> {
+            add(makeBtn("Colisión con...", "Se ejecuta al chocar con otra entidad.", () -> new EventBlock(EventType.ON_COLLIDE)));
+            add(makeBtn("Se acerca entidad...", "Se ejecuta cuando otra entidad se acerca dentro del radio indicado.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_ENTITY_NEAR);
                 b.args.put("radius", 50.0);
                 return b;
             }));
-            add(makeBtn("Mientras Var entidad", () -> {
+            add(makeBtn("Mientras Var entidad", "Repite mientras la variable de la entidad cumpla la condición.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_WHILE_VAR);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Mientras Var global", () -> {
+            add(makeBtn("Mientras Var global", "Repite mientras la variable global cumpla la condición.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_WHILE_GLOBAL_VAR);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
@@ -1720,109 +1720,108 @@ public class ScratchMVP {
             }));
             add(Box.createVerticalStrut(10));
             add(section("Condicionales"));
-            add(makeBtn("Aleatorio", () -> new ActionBlock(ActionType.RANDOM)));
-            add(makeBtn("Si variable...", () -> {
+            add(makeBtn("Aleatorio", "Ejecuta una de las ramas conectadas al azar.", () -> new ActionBlock(ActionType.RANDOM)));
+            add(makeBtn("Si variable...", "Ejecuta el bloque siguiente si la variable de la entidad cumple la condición.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.IF_VAR);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Si global...", () -> {
+            add(makeBtn("Si global...", "Ejecuta el bloque siguiente si una variable global cumple la condición.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.IF_GLOBAL_VAR);
                 b.args.put("var", "global");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Si probabilidad...", () -> {
+            add(makeBtn("Si probabilidad...", "Ejecuta el bloque siguiente con la probabilidad indicada (0-1).", () -> {
                 ActionBlock b = new ActionBlock(ActionType.IF_RANDOM_CHANCE);
                 b.args.put("prob", 0.5);
                 return b;
             }));
             add(Box.createVerticalStrut(10));
             add(section("Acciones"));
-            add(makeBtn("Mover...", () -> {
+            add(makeBtn("Mover...", "Mueve la entidad en la dirección, velocidad y tiempo indicados.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.MOVE_BY);
                 b.args.put("dir", "derecha");
                 b.args.put("speed", 100.0);
                 b.args.put("secs", 1.0);
                 return b;
             }));
-            add(makeBtn("Color...", () -> new ActionBlock(ActionType.SET_COLOR)));
-            add(makeBtn("Decir...", () -> {
+            add(makeBtn("Color...", "Cambia el color de la entidad.", () -> new ActionBlock(ActionType.SET_COLOR)));
+            add(makeBtn("Decir...", "Muestra un mensaje sobre la entidad durante unos segundos.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SAY);
                 b.args.put("text", "¡Hola!");
                 b.args.put("secs", 2.0);
                 return b;
             }));
-            add(makeBtn("Asignar var entidad...", () -> {
+            add(makeBtn("Asignar var entidad...", "Fija el valor de una variable de la entidad.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SET_VAR);
                 b.args.put("var", "var");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Cambiar var entidad...", () -> {
+            add(makeBtn("Cambiar var entidad...", "Suma o resta a una variable de la entidad.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.CHANGE_VAR);
                 b.args.put("var", "var");
                 b.args.put("delta", 1);
                 return b;
             }));
-            add(makeBtn("Asignar var global...", () -> {
+            add(makeBtn("Asignar var global...", "Fija el valor de una variable global.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SET_GLOBAL_VAR);
                 b.args.put("var", "var");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Cambiar var global...", () -> {
+            add(makeBtn("Cambiar var global...", "Suma o resta a una variable global.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.CHANGE_GLOBAL_VAR);
                 b.args.put("var", "var");
                 b.args.put("delta", 1);
                 return b;
             }));
-            add(makeBtn("Esperar...", () -> {
+            add(makeBtn("Esperar...", "Pausa la ejecución durante los segundos indicados.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.WAIT);
                 b.args.put("secs", 1.0);
                 return b;
             }));
-            add(makeBtn("Girar...", () -> {
+            add(makeBtn("Girar...", "Rota la entidad una cantidad de grados.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.ROTATE_BY);
                 b.args.put("deg", 15);
                 return b;
             }));
-            add(makeBtn("Apuntar a...", () -> {
+            add(makeBtn("Apuntar a...", "Gira la entidad hacia un ángulo específico.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.ROTATE_TO);
                 b.args.put("deg", 0);
                 return b;
             }));
-            add(makeBtn("Escalar x...", () -> {
+            add(makeBtn("Escalar x...", "Multiplica el tamaño por el factor indicado.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SCALE_BY);
                 b.args.put("factor", 1.1);
                 return b;
             }));
-            add(makeBtn("Tamaño...", () -> {
+            add(makeBtn("Tamaño...", "Fija un tamaño exacto para la entidad.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SET_SIZE);
                 b.args.put("w", 60);
                 b.args.put("h", 60);
                 return b;
             }));
-            add(makeBtn("Opacidad...", () -> {
+            add(makeBtn("Opacidad...", "Cambia la transparencia de la entidad.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.CHANGE_OPACITY);
                 b.args.put("delta", -0.1);
                 return b;
             }));
-          
-            add(makeBtn("Mover a entidad...", () -> new ActionBlock(ActionType.MOVE_TO_ENTITY)));
-            add(makeBtn("Crear entidad", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
-            add(makeBtn("Eliminar entidad", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
-            add(makeBtn("Escenario siguiente", () -> new ActionBlock(ActionType.NEXT_SCENE)));
-            add(makeBtn("Escenario anterior", () -> new ActionBlock(ActionType.PREV_SCENE)));
-            add(makeBtn("Ir a escenario...", () -> {
+            add(makeBtn("Mover a entidad...", "Mueve la entidad hacia otra seleccionada.", () -> new ActionBlock(ActionType.MOVE_TO_ENTITY)));
+            add(makeBtn("Crear entidad", "Crea una nueva copia de una entidad plantilla.", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
+            add(makeBtn("Eliminar entidad", "Elimina la entidad actual de la escena.", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
+            add(makeBtn("Escenario siguiente", "Cambia al siguiente escenario.", () -> new ActionBlock(ActionType.NEXT_SCENE)));
+            add(makeBtn("Escenario anterior", "Vuelve al escenario anterior.", () -> new ActionBlock(ActionType.PREV_SCENE)));
+            add(makeBtn("Ir a escenario...", "Salta al número de escenario indicado.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.GOTO_SCENE);
                 b.args.put("index", 1);
                 return b;
             }));
-            add(makeBtn("Detener", () -> new ActionBlock(ActionType.STOP)));
+            add(makeBtn("Detener", "Detiene la ejecución del programa.", () -> new ActionBlock(ActionType.STOP)));
 
             add(Box.createVerticalGlue());
         }
@@ -1836,9 +1835,10 @@ public class ScratchMVP {
             return p;
         }
 
-        JButton makeBtn(String text, Supplier<Block> factory) {
+        JButton makeBtn(String text, String tip, Supplier<Block> factory) {
             JButton b = new JButton(text);
             b.setAlignmentX(Component.LEFT_ALIGNMENT);
+            b.setToolTipText(tip);
             b.addActionListener(e -> {
                 if (dropTarget != null) dropTarget.spawnBlock(factory.get());
             });
