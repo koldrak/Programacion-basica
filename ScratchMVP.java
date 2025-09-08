@@ -442,6 +442,17 @@ public class ScratchMVP {
         Map<String, Map<EventBlock, Double>> varLast = new HashMap<>();
         Map<EventBlock, Double> globalVarLast = new HashMap<>();
         final List<Runnable> pendingOps = new ArrayList<>();
+        static class ScheduledChain {
+            final Entity entity;
+            final Block block;
+            final long runAtMs;
+            ScheduledChain(Entity entity, Block block, long runAtMs) {
+                this.entity = entity;
+                this.block = block;
+                this.runAtMs = runAtMs;
+            }
+        }
+        final List<ScheduledChain> scheduledChains = new ArrayList<>();
 
         GameRuntime(Project p, StagePanel s, Set<Integer> keysDown) {
             this.project = p;
@@ -491,6 +502,16 @@ public class ScratchMVP {
             lastUpdateNs = nowNs;
 
             long nowMs = System.currentTimeMillis();
+
+            for (Iterator<ScheduledChain> it = scheduledChains.iterator(); it.hasNext(); ) {
+                ScheduledChain sc = it.next();
+                if (nowMs >= sc.runAtMs) {
+                    if (stage.entities.contains(sc.entity)) {
+                        executeChain(sc.entity, sc.block);
+                    }
+                    it.remove();
+                }
+            }
 
             // Actualizar movimiento gradual hacia entidades objetivo
             for (Entity en : new ArrayList<>(stage.entities)) {
@@ -834,9 +855,10 @@ public class ScratchMVP {
                 }
                 case WAIT -> {
                     double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
-                    javax.swing.Timer tm = new javax.swing.Timer((int) (secs * 1000), ev -> executeChain(e, ab.next));
-                    tm.setRepeats(false);
-                    tm.start();
+                    if (ab.next != null) {
+                        long runAt = System.currentTimeMillis() + (long) (secs * 1000);
+                        scheduledChains.add(new ScheduledChain(e, ab.next, runAt));
+                    }
                     return false;
                 }
                 case ROTATE_BY -> {
