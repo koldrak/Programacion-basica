@@ -5,6 +5,7 @@ import javax.swing.event.ChangeListener;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.util.*;
 import java.util.List;
@@ -40,6 +41,7 @@ public class ScratchMVP {
         double width = 60, height = 60; // si CIRCLE, usa radius = width/2
         double opacity = 1.0;
         Polygon customPolygon = null; // para formas personalizadas
+        BufferedImage texture = null; // dibujo interno opcional
     }
 
     static class Entity implements Serializable {
@@ -1260,6 +1262,7 @@ public class ScratchMVP {
             c.a.width = src.a.width;
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
+            c.a.texture = src.a.texture;
             if (src.a.customPolygon != null) {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
@@ -1348,6 +1351,7 @@ public class ScratchMVP {
         JList<String> varList;
         JSpinner varValue;
         JButton btnAddVar, btnDelVar;
+        JButton paintBtn;
         boolean updating = false;
 
         InspectorPanel(Project p, EntityListPanel lp, ScriptCanvasPanel c) {
@@ -1364,6 +1368,7 @@ public class ScratchMVP {
             add(Box.createVerticalStrut(8));
             shapeBox = new JComboBox<>(new String[]{"Rectángulo","Círculo","Triángulo","Pentágono","Hexágono","Estrella","Polígono personalizado"});
             colorBtn = new JButton("Color...");
+            paintBtn = new JButton("Pintar...");
             wSpin = new JSpinner(new SpinnerNumberModel(60, 10, 500, 5));
             hSpin = new JSpinner(new SpinnerNumberModel(60, 10, 500, 5));
 
@@ -1372,7 +1377,10 @@ public class ScratchMVP {
             add(labeled("Ancho", wSpin));
             add(labeled("Alto/Radio", hSpin));
             add(Box.createVerticalStrut(6));
-            add(colorBtn);
+            JPanel cp = new JPanel(new FlowLayout(FlowLayout.LEFT,5,0));
+            cp.add(colorBtn);
+            cp.add(paintBtn);
+            add(cp);
             add(Box.createVerticalStrut(10));
 
             add(new JLabel("Variables"));
@@ -1431,6 +1439,16 @@ public class ScratchMVP {
                 }
             });
 
+            paintBtn.addActionListener(e -> {
+                Entity sel = listPanel.getSelected();
+                if (sel != null) {
+                    new PaintDialog(sel).setVisible(true);
+                    canvas.repaint();
+                    propagateToScenarios(sel);
+                    preview.repaint();
+                }
+            });
+
             ChangeListener cl = e -> {
                 if (updating) return;
                 Entity sel = listPanel.getSelected();
@@ -1454,6 +1472,14 @@ public class ScratchMVP {
 
                     sel.a.width = newW;
                     sel.a.height = newH;
+                    if (sel.a.texture != null) {
+                        BufferedImage old = sel.a.texture;
+                        BufferedImage scaled = new BufferedImage((int)newW, (int)newH, BufferedImage.TYPE_INT_ARGB);
+                        Graphics2D g2 = scaled.createGraphics();
+                        g2.drawImage(old, 0, 0, (int)newW, (int)newH, null);
+                        g2.dispose();
+                        sel.a.texture = scaled;
+                    }
                     canvas.repaint();
                     propagateToScenarios(sel);
                     preview.repaint();
@@ -1544,8 +1570,19 @@ public class ScratchMVP {
                     Composite old = g2.getComposite();
                     g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) sel.a.opacity));
                     Shape s = buildShape(tmp);
-                    g2.setColor(sel.a.color);
-                    g2.fill(s);
+                    if (sel.a.texture != null) {
+                        g2.setClip(s);
+                        AffineTransform at = new AffineTransform();
+                        at.translate(t.x + sel.a.width / 2, t.y + sel.a.height / 2);
+                        at.rotate(Math.toRadians(t.rot));
+                        at.scale(t.scaleX, t.scaleY);
+                        at.translate(-sel.a.width / 2, -sel.a.height / 2);
+                        g2.drawImage(sel.a.texture, at, null);
+                        g2.setClip(null);
+                    } else {
+                        g2.setColor(sel.a.color);
+                        g2.fill(s);
+                    }
                     g2.setColor(Color.DARK_GRAY);
                     g2.draw(s);
                     g2.setComposite(old);
@@ -1554,10 +1591,97 @@ public class ScratchMVP {
             }
         }
 
+        class PaintDialog extends JDialog {
+            final Entity entity;
+            BufferedImage img;
+            Color brushColor = Color.BLACK;
+            int brushSize = 10;
+            Shape mask;
+
+            PaintDialog(Entity ent) {
+                super((Frame) null, "Pintar", true);
+                this.entity = ent;
+                int w = (int) Math.round(ent.a.width);
+                int h = (int) Math.round(ent.a.height);
+                if (ent.a.texture != null) {
+                    img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+                    Graphics2D g = img.createGraphics();
+                    g.drawImage(ent.a.texture, 0, 0, w, h, null);
+                    g.dispose();
+                } else {
+                    img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+                }
+                Entity tmp = new Entity();
+                tmp.a = ent.a;
+                tmp.t = new Transform();
+                mask = buildShape(tmp);
+
+                CanvasPanel canvas = new CanvasPanel();
+
+                JButton colBtn = new JButton("Color");
+                colBtn.addActionListener(ev -> {
+                    Color c = JColorChooser.showDialog(this, "Color", brushColor);
+                    if (c != null) brushColor = c;
+                });
+                JSpinner sizeSpin = new JSpinner(new SpinnerNumberModel(brushSize,1,100,1));
+                sizeSpin.addChangeListener(ev -> brushSize = ((Number) sizeSpin.getValue()).intValue());
+                JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT,5,0));
+                top.add(colBtn);
+                top.add(new JLabel("Pincel"));
+                top.add(sizeSpin);
+
+                JButton ok = new JButton("Listo");
+                ok.addActionListener(ev -> { entity.a.texture = img; dispose(); });
+                JButton cancel = new JButton("Cancelar");
+                cancel.addActionListener(ev -> dispose());
+                JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+                bottom.add(ok);
+                bottom.add(cancel);
+
+                setLayout(new BorderLayout());
+                add(top, BorderLayout.NORTH);
+                add(canvas, BorderLayout.CENTER);
+                add(bottom, BorderLayout.SOUTH);
+                pack();
+                setLocationRelativeTo(InspectorPanel.this);
+            }
+
+            class CanvasPanel extends JPanel {
+                CanvasPanel() {
+                    setPreferredSize(new Dimension(img.getWidth(), img.getHeight()));
+                    MouseAdapter ma = new MouseAdapter() {
+                        Point last;
+                        @Override public void mousePressed(MouseEvent e) { last = e.getPoint(); draw(last, last); }
+                        @Override public void mouseDragged(MouseEvent e) { Point p = e.getPoint(); draw(last, p); last = p; }
+                    };
+                    addMouseListener(ma);
+                    addMouseMotionListener(ma);
+                }
+
+                void draw(Point p0, Point p1) {
+                    Graphics2D g = img.createGraphics();
+                    g.setClip(mask);
+                    g.setColor(brushColor);
+                    g.setStroke(new BasicStroke(brushSize, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    g.drawLine(p0.x, p0.y, p1.x, p1.y);
+                    g.dispose();
+                    repaint();
+                }
+
+                @Override protected void paintComponent(Graphics g) {
+                    super.paintComponent(g);
+                    g.drawImage(img, 0, 0, null);
+                    Graphics2D g2 = (Graphics2D) g;
+                    g2.setColor(Color.GRAY);
+                    g2.draw(mask);
+                }
+            }
+        }
+
         void refresh() {
             Entity sel = listPanel.getSelected();
             boolean en = sel != null;
-            shapeBox.setEnabled(en); colorBtn.setEnabled(en);
+            shapeBox.setEnabled(en); colorBtn.setEnabled(en); paintBtn.setEnabled(en);
             // permitir redimensionar incluso en formas personalizadas
             wSpin.setEnabled(en); hSpin.setEnabled(en);
             btnAddVar.setEnabled(en); varList.setEnabled(en);
@@ -1600,6 +1724,7 @@ public class ScratchMVP {
                         en.a.width = tpl.a.width;
                         en.a.height = tpl.a.height;
                         en.a.opacity = tpl.a.opacity;
+                        en.a.texture = tpl.a.texture;
                         if (tpl.a.customPolygon != null) {
                             en.a.customPolygon = new Polygon(
                                     tpl.a.customPolygon.xpoints,
@@ -3095,6 +3220,7 @@ public class ScratchMVP {
             c.a.width = src.a.width;
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
+            c.a.texture = src.a.texture;
             if (src.a.customPolygon != null) {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
@@ -3193,8 +3319,19 @@ public class ScratchMVP {
                 Composite oldComp = g2.getComposite();
                 g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) e.a.opacity));
                 Shape s = buildShape(e);
-                g2.setColor(e.a.color);
-                g2.fill(s);
+                if (e.a.texture != null) {
+                    g2.setClip(s);
+                    AffineTransform at = new AffineTransform();
+                    at.translate(e.t.x + e.a.width / 2, e.t.y + e.a.height / 2);
+                    at.rotate(Math.toRadians(e.t.rot));
+                    at.scale(e.t.scaleX, e.t.scaleY);
+                    at.translate(-e.a.width / 2, -e.a.height / 2);
+                    g2.drawImage(e.a.texture, at, null);
+                    g2.setClip(null);
+                } else {
+                    g2.setColor(e.a.color);
+                    g2.fill(s);
+                }
                 g2.setColor(Color.DARK_GRAY);
                 g2.draw(s);
                 g2.setComposite(oldComp);
