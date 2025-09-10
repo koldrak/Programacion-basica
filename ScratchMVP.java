@@ -442,6 +442,7 @@ public class ScratchMVP {
         Map<String, Map<EventBlock, Double>> varLast = new HashMap<>();
         Map<EventBlock, Double> globalVarLast = new HashMap<>();
         final List<Runnable> pendingOps = new ArrayList<>();
+        final List<javax.swing.Timer> activeTimers = new ArrayList<>();
 
         GameRuntime(Project p, StagePanel s, Set<Integer> keysDown) {
             this.project = p;
@@ -451,6 +452,7 @@ public class ScratchMVP {
 
         void play() {
             stop();
+            activeTimers.clear();
             tickLastFire.clear();
             varLast.clear();
             globalVarLast.clear();
@@ -483,6 +485,8 @@ public class ScratchMVP {
                 swingTimer.stop();
                 swingTimer = null;
             }
+            for (javax.swing.Timer t : activeTimers) t.stop();
+            activeTimers.clear();
         }
 
         void update() {
@@ -834,9 +838,14 @@ public class ScratchMVP {
                 }
                 case WAIT -> {
                     double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
-                    javax.swing.Timer tm = new javax.swing.Timer((int) (secs * 1000), ev -> executeChain(e, ab.next));
+                    javax.swing.Timer tm = new javax.swing.Timer((int) (secs * 1000), null);
+                    tm.addActionListener(ev -> {
+                        activeTimers.remove(tm);
+                        executeChain(e, ab.next);
+                    });
                     tm.setRepeats(false);
                     tm.start();
+                    activeTimers.add(tm);
                     return false;
                 }
                 case ROTATE_BY -> {
