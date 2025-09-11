@@ -1670,7 +1670,6 @@ public class ScratchMVP {
                     entity.a.paintImage = new BufferedImage((int)entity.a.width, (int)entity.a.height, BufferedImage.TYPE_INT_ARGB);
                 }
                 Shape s = getShape();
-                if (!s.contains(x, y)) return;
                 Graphics2D g2 = entity.a.paintImage.createGraphics();
                 g2.setClip(s);
                 g2.setColor(brushColor);
