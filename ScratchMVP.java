@@ -839,7 +839,6 @@ public class ScratchMVP {
         void triggerEvent(Entity e, EventBlock ev) {
             boolean isIdle = ev.type == EventType.ON_IDLE;
             if (!isIdle) {
-                abortIdle(e);
                 idleTriggered.remove(e.id);
             }
             if (ev.next != null) startChain(e, ev.next, isIdle);
