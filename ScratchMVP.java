@@ -2110,6 +2110,62 @@ public class ScratchMVP {
     }
 
     // ====== PALETA DE BLOQUES ======
+    static class WrapLayout extends FlowLayout {
+        WrapLayout() { super(); }
+        WrapLayout(int align) { super(align); }
+        WrapLayout(int align, int hgap, int vgap) { super(align, hgap, vgap); }
+
+        @Override
+        public Dimension preferredLayoutSize(Container target) { return layoutSize(target, true); }
+
+        @Override
+        public Dimension minimumLayoutSize(Container target) {
+            Dimension minimum = layoutSize(target, false);
+            minimum.width -= (getHgap() + 1);
+            return minimum;
+        }
+
+        private Dimension layoutSize(Container target, boolean preferred) {
+            synchronized (target.getTreeLock()) {
+                int targetWidth = target.getWidth();
+                if (targetWidth == 0) targetWidth = Integer.MAX_VALUE;
+
+                int hgap = getHgap();
+                int vgap = getVgap();
+                Insets insets = target.getInsets();
+                int horizontalInsetsAndGap = insets.left + insets.right + (hgap * 2);
+                int maxWidth = targetWidth - horizontalInsetsAndGap;
+
+                Dimension dim = new Dimension(0, 0);
+                int rowWidth = 0;
+                int rowHeight = 0;
+
+                int nmembers = target.getComponentCount();
+                for (int i = 0; i < nmembers; i++) {
+                    Component m = target.getComponent(i);
+                    if (m.isVisible()) {
+                        Dimension d = preferred ? m.getPreferredSize() : m.getMinimumSize();
+                        if (rowWidth + d.width > maxWidth) {
+                            dim.width = Math.max(dim.width, rowWidth);
+                            dim.height += rowHeight + vgap;
+                            rowWidth = 0;
+                            rowHeight = 0;
+                        }
+                        if (rowWidth != 0) rowWidth += hgap;
+                        rowWidth += d.width;
+                        rowHeight = Math.max(rowHeight, d.height);
+                    }
+                }
+
+                dim.width = Math.max(dim.width, rowWidth);
+                dim.height += rowHeight;
+                dim.width += horizontalInsetsAndGap;
+                dim.height += insets.top + insets.bottom + vgap * 2;
+                return dim;
+            }
+        }
+    }
+
     static class PalettePanel extends JPanel {
         ScriptCanvasPanel dropTarget;
 
@@ -2124,8 +2180,7 @@ public class ScratchMVP {
         }
 
         private JScrollPane createEventsPanel() {
-            JPanel p = new JPanel();
-            p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+            JPanel p = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
             p.setBorder(new EmptyBorder(10,10,10,10));
             p.add(makeBtn("Al iniciar", "Se ejecuta una vez al comenzar la escena.", () -> new EventBlock(EventType.ON_START)));
             p.add(makeBtn("Al aparecer", "Se ejecuta cuando la entidad aparece en la escena.", () -> new EventBlock(EventType.ON_APPEAR)));
@@ -2180,13 +2235,11 @@ public class ScratchMVP {
                 b.args.put("value", 0);
                 return b;
             }));
-            p.add(Box.createVerticalGlue());
             return wrap(p);
         }
 
         private JScrollPane createConditionalsPanel() {
-            JPanel p = new JPanel();
-            p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+            JPanel p = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
             p.setBorder(new EmptyBorder(10,10,10,10));
             p.add(makeBtn("Aleatorio", "Ejecuta una de las ramas conectadas al azar.", () -> new ActionBlock(ActionType.RANDOM)));
             p.add(makeBtn("Si variable...", "Ejecuta el bloque siguiente si la variable de la entidad cumple la condición.", () -> {
@@ -2208,13 +2261,11 @@ public class ScratchMVP {
                 b.args.put("prob", 0.5);
                 return b;
             }));
-            p.add(Box.createVerticalGlue());
             return wrap(p);
         }
 
         private JScrollPane createActionsPanel() {
-            JPanel p = new JPanel();
-            p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+            JPanel p = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
             p.setBorder(new EmptyBorder(10,10,10,10));
             p.add(makeBtn("Mover...", "Mueve la entidad en la dirección, velocidad y tiempo indicados.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.MOVE_BY);
@@ -2311,7 +2362,6 @@ public class ScratchMVP {
                 return b;
             }));
             p.add(makeBtn("Detener", "Detiene la ejecución del programa.", () -> new ActionBlock(ActionType.STOP)));
-            p.add(Box.createVerticalGlue());
             return wrap(p);
         }
 
