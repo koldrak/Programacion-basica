@@ -186,7 +186,19 @@ public class ScratchMVP {
     }
 
     // ====== BLOQUES ======
-    enum BlockKind { EVENT, ACTION }
+    enum BlockKind { EVENT, CONDITIONAL, ACTION }
+
+    static final Color EVENT_COLOR = new Color(0xF5CBA7);
+    static final Color CONDITIONAL_COLOR = new Color(0xD7BDE2);
+    static final Color ACTION_COLOR = new Color(0xABEBC6);
+
+    static Color colorFor(BlockKind kind) {
+        return switch (kind) {
+            case EVENT -> EVENT_COLOR;
+            case CONDITIONAL -> CONDITIONAL_COLOR;
+            case ACTION -> ACTION_COLOR;
+        };
+    }
 
     enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_ENTITY_NEAR, ON_IDLE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
     enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, SET_SHAPE, SWITCH_SHAPES, RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, NEXT_SCENE, PREV_SCENE, GOTO_SCENE, STOP }
@@ -278,7 +290,12 @@ public class ScratchMVP {
 
         ActionBlock(ActionType t) { this.type = t; }
 
-        @Override BlockKind kind() { return BlockKind.ACTION; }
+        @Override BlockKind kind() {
+            return switch (type) {
+                case RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE -> BlockKind.CONDITIONAL;
+                default -> BlockKind.ACTION;
+            };
+        }
         @Override String title() {
             switch (type) {
                 case MOVE_BY:
@@ -2399,6 +2416,10 @@ public class ScratchMVP {
             JButton b = new JButton(text);
             b.setAlignmentX(Component.LEFT_ALIGNMENT);
             b.setToolTipText(tip);
+            Block sample = factory.get();
+            b.setBackground(colorFor(sample.kind()));
+            b.setOpaque(true);
+            b.setBorderPainted(false);
             b.addActionListener(e -> {
                 if (dropTarget != null) dropTarget.spawnBlock(factory.get());
             });
@@ -2751,8 +2772,7 @@ public class ScratchMVP {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-            boolean isEvent = block.kind()==BlockKind.EVENT;
-            Color base = isEvent ? new Color(0xF9E79F) : new Color(0xD6EAF8);
+            Color base = colorFor(block.kind());
             g2.setColor(base);
             g2.fillRoundRect(0,0,getWidth()-1,getHeight()-1,12,12);
             g2.setColor(Color.GRAY);
