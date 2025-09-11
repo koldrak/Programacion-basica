@@ -1605,19 +1605,65 @@ public class ScratchMVP {
                 addMouseListener(this);
                 addMouseMotionListener(this);
             }
+            Shape getShape() {
+                switch (entity.a.shape) {
+                    case RECT -> {
+                        return new Rectangle2D.Double(0, 0, entity.a.width, entity.a.height);
+                    }
+                    case CIRCLE -> {
+                        return new Ellipse2D.Double(0, 0, entity.a.width, entity.a.width);
+                    }
+                    case TRIANGLE -> {
+                        Path2D t = new Path2D.Double();
+                        t.moveTo(entity.a.width/2, 0);
+                        t.lineTo(0, entity.a.height);
+                        t.lineTo(entity.a.width, entity.a.height);
+                        t.closePath();
+                        return t;
+                    }
+                    case PENTAGON -> {
+                        Shape s = makeRegularPolygon(5, entity.a.width, entity.a.height);
+                        return AffineTransform.getTranslateInstance(entity.a.width/2, entity.a.height/2).createTransformedShape(s);
+                    }
+                    case HEXAGON -> {
+                        Shape s = makeRegularPolygon(6, entity.a.width, entity.a.height);
+                        return AffineTransform.getTranslateInstance(entity.a.width/2, entity.a.height/2).createTransformedShape(s);
+                    }
+                    case STAR -> {
+                        Shape s = makeStar(5, entity.a.width, entity.a.height);
+                        return AffineTransform.getTranslateInstance(entity.a.width/2, entity.a.height/2).createTransformedShape(s);
+                    }
+                    case POLYGON -> {
+                        return entity.a.customPolygon != null ? entity.a.customPolygon : new Rectangle2D.Double(0,0,entity.a.width,entity.a.height);
+                    }
+                    default -> {
+                        return new Rectangle2D.Double(0, 0, entity.a.width, entity.a.height);
+                    }
+                }
+            }
             @Override protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                Shape s = getShape();
+                g2.setColor(entity.a.color);
+                g2.fill(s);
                 if (entity.a.paintImage != null) {
-                    g.drawImage(entity.a.paintImage,0,0,null);
+                    g2.setClip(s);
+                    g2.drawImage(entity.a.paintImage,0,0,null);
+                    g2.setClip(null);
                 }
-                g.setColor(Color.DARK_GRAY);
-                g.drawRect(0,0,getWidth()-1,getHeight()-1);
+                g2.setColor(Color.DARK_GRAY);
+                g2.draw(s);
+                g2.dispose();
             }
             void paintAt(int x, int y) {
                 if (entity.a.paintImage == null || entity.a.paintImage.getWidth() != (int)entity.a.width || entity.a.paintImage.getHeight() != (int)entity.a.height) {
                     entity.a.paintImage = new BufferedImage((int)entity.a.width, (int)entity.a.height, BufferedImage.TYPE_INT_ARGB);
                 }
+                Shape s = getShape();
+                if (!s.contains(x, y)) return;
                 Graphics2D g2 = entity.a.paintImage.createGraphics();
+                g2.setClip(s);
                 g2.setColor(brushColor);
                 g2.fillOval(x - brushSize/2, y - brushSize/2, brushSize, brushSize);
                 g2.dispose();
