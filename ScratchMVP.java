@@ -1270,6 +1270,11 @@ public class ScratchMVP {
             c.a.width = src.a.width;
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
+            if (src.a.paintImage != null) {
+                c.a.paintImage = copyImage(src.a.paintImage);
+            } else {
+                c.a.paintImage = null;
+            }
             if (src.a.customPolygon != null) {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
@@ -3227,6 +3232,11 @@ public class ScratchMVP {
             c.a.width = src.a.width;
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
+            if (src.a.paintImage != null) {
+                c.a.paintImage = copyImage(src.a.paintImage);
+            } else {
+                c.a.paintImage = null;
+            }
             if (src.a.customPolygon != null) {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
