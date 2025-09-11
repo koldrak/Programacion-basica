@@ -188,7 +188,7 @@ public class ScratchMVP {
     // ====== BLOQUES ======
     enum BlockKind { EVENT, ACTION }
 
-    enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_ENTITY_NEAR, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
+    enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_ENTITY_NEAR, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR, ON_IDLE }
     enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, NEXT_SCENE, PREV_SCENE, GOTO_SCENE, STOP }
 
     static abstract class Block implements Serializable {
@@ -263,6 +263,8 @@ public class ScratchMVP {
                     Object val = args.getOrDefault("value",0);
                     return "Evento: Mientras var global " + var + " " + op + " " + val;
                 }
+                case ON_IDLE:
+                    return "Evento: Inactivo";
             }
             return "Evento";
         }
@@ -460,6 +462,10 @@ public class ScratchMVP {
         Map<EventBlock, Double> globalVarLast = new HashMap<>();
         final List<Runnable> pendingOps = new ArrayList<>();
         final List<javax.swing.Timer> activeTimers = new ArrayList<>();
+        Map<String, Integer> activeChains = new HashMap<>();
+        Set<String> idleRunning = new HashSet<>();
+        Map<javax.swing.Timer, String> timerEntity = new HashMap<>();
+        Map<javax.swing.Timer, Boolean> timerIdle = new HashMap<>();
 
         GameRuntime(Project p, StagePanel s, Set<Integer> keysDown) {
             this.project = p;
@@ -473,6 +479,10 @@ public class ScratchMVP {
             tickLastFire.clear();
             varLast.clear();
             globalVarLast.clear();
+            activeChains.clear();
+            idleRunning.clear();
+            timerEntity.clear();
+            timerIdle.clear();
             // ON_START una vez
             for (Entity e : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(e.id, Collections.emptyList());
@@ -504,6 +514,10 @@ public class ScratchMVP {
             }
             for (javax.swing.Timer t : activeTimers) t.stop();
             activeTimers.clear();
+            activeChains.clear();
+            idleRunning.clear();
+            timerEntity.clear();
+            timerIdle.clear();
         }
 
         void update() {
@@ -702,6 +716,19 @@ public class ScratchMVP {
                 }
             }
 
+            // ON_IDLE
+            for (Entity en : new ArrayList<>(stage.entities)) {
+                if (activeChains.getOrDefault(en.id, 0) == 0 && !idleRunning.contains(en.id)) {
+                    List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
+                    for (EventBlock ev : roots) {
+                        if (ev.type == EventType.ON_IDLE) {
+                            triggerEvent(en, ev, true);
+                            break;
+                        }
+                    }
+                }
+            }
+
             // limpiar "decir" expirado
             long t = System.currentTimeMillis();
             for (Entity en : new ArrayList<>(stage.entities)) {
@@ -720,9 +747,38 @@ public class ScratchMVP {
         }
 
         void triggerEvent(Entity e, EventBlock ev) {
-            if (ev.next != null) executeChain(e, ev.next);
+            triggerEvent(e, ev, false);
+        }
+
+        void triggerEvent(Entity e, EventBlock ev, boolean isIdle) {
+            if (isIdle) {
+                idleRunning.add(e.id);
+            } else {
+                if (idleRunning.remove(e.id)) {
+                    for (javax.swing.Timer t : new ArrayList<>(activeTimers)) {
+                        if (e.id.equals(timerEntity.get(t)) && Boolean.TRUE.equals(timerIdle.get(t))) {
+                            t.stop();
+                            activeTimers.remove(t);
+                            timerEntity.remove(t);
+                            timerIdle.remove(t);
+                        }
+                    }
+                }
+                activeChains.merge(e.id, 1, Integer::sum);
+            }
+
+            boolean finished = true;
+            if (ev.next != null) finished &= executeChain(e, ev.next, isIdle);
             for (Block b : ev.extraNext) {
-                executeChain(e, b);
+                finished &= executeChain(e, b, isIdle);
+            }
+            if (finished) {
+                if (isIdle) {
+                    idleRunning.remove(e.id);
+                } else {
+                    activeChains.merge(e.id, -1, Integer::sum);
+                    if (activeChains.getOrDefault(e.id, 0) <= 0) activeChains.remove(e.id);
+                }
             }
         }
 
@@ -741,20 +797,21 @@ public class ScratchMVP {
             return buildShape(e).contains(p);
         }
 
-        void executeChain(Entity e, Block b) {
+        boolean executeChain(Entity e, Block b, boolean isIdle) {
             Block current = b;
             while (current != null) {
                 if (current instanceof ActionBlock) {
-                    boolean cont = executeAction(e, (ActionBlock) current);
-                    if (!cont) break;
+                    boolean cont = executeAction(e, (ActionBlock) current, isIdle);
+                    if (!cont) return false;
                     current = current.next;
                 } else {
                     current = current.next;
                 }
             }
+            return true;
         }
 
-        boolean executeAction(Entity e, ActionBlock ab) {
+        boolean executeAction(Entity e, ActionBlock ab, boolean isIdle) {
             switch (ab.type) {
                 case MOVE_BY -> {
                     String dir = String.valueOf(ab.args.getOrDefault("dir", "derecha"));
@@ -856,9 +913,22 @@ public class ScratchMVP {
                 case WAIT -> {
                     double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
                     javax.swing.Timer tm = new javax.swing.Timer((int) (secs * 1000), null);
+                    timerEntity.put(tm, e.id);
+                    timerIdle.put(tm, isIdle);
                     tm.addActionListener(ev -> {
                         activeTimers.remove(tm);
-                        executeChain(e, ab.next);
+                        timerEntity.remove(tm);
+                        boolean idleFlag = Boolean.TRUE.equals(timerIdle.remove(tm));
+                        if (idleFlag && !idleRunning.contains(e.id)) return;
+                        boolean fin = executeChain(e, ab.next, idleFlag);
+                        if (fin) {
+                            if (idleFlag) {
+                                idleRunning.remove(e.id);
+                            } else {
+                                activeChains.merge(e.id, -1, Integer::sum);
+                                if (activeChains.getOrDefault(e.id, 0) <= 0) activeChains.remove(e.id);
+                            }
+                        }
                     });
                     tm.setRepeats(false);
                     tm.start();
@@ -891,7 +961,7 @@ public class ScratchMVP {
                 case RANDOM -> {
                     if (!ab.extraNext.isEmpty()) {
                         Block chosen = ab.extraNext.get(new Random().nextInt(ab.extraNext.size()));
-                        executeChain(e, chosen);
+                        executeChain(e, chosen, isIdle);
                     }
                 }
                 case IF_VAR -> {
@@ -901,7 +971,7 @@ public class ScratchMVP {
                     double cur = e.vars.getOrDefault(var, 0.0);
                     boolean cond = op.equals(">") ? cur > target : cur < target;
                     if (cond && !ab.extraNext.isEmpty()) {
-                        executeChain(e, ab.extraNext.get(0));
+                        executeChain(e, ab.extraNext.get(0), isIdle);
                     }
                 }
                 case IF_GLOBAL_VAR -> {
@@ -911,13 +981,13 @@ public class ScratchMVP {
                     double cur = project.globalVars.getOrDefault(var, 0.0);
                     boolean cond = op.equals(">") ? cur > target : cur < target;
                     if (cond && !ab.extraNext.isEmpty()) {
-                        executeChain(e, ab.extraNext.get(0));
+                        executeChain(e, ab.extraNext.get(0), isIdle);
                     }
                 }
                 case IF_RANDOM_CHANCE -> {
                     double prob = Double.parseDouble(String.valueOf(ab.args.getOrDefault("prob", 0.5)));
                     if (Math.random() < prob && !ab.extraNext.isEmpty()) {
-                        executeChain(e, ab.extraNext.get(0));
+                        executeChain(e, ab.extraNext.get(0), isIdle);
                     }
                 }
                 case MOVE_TO_ENTITY -> {
@@ -1909,6 +1979,7 @@ public class ScratchMVP {
                 b.args.put("button", MouseEvent.BUTTON1);
                 return b;
             }));
+            add(makeBtn("Cuando inactivo", "Se ejecuta cuando no hay otros eventos activos.", () -> new EventBlock(EventType.ON_IDLE)));
             add(makeBtn("Toca borde", "Se ejecuta cuando la entidad toca el borde del escenario.", () -> new EventBlock(EventType.ON_EDGE)));
             add(makeBtn("Var de entidad >o<", "Se dispara al cumplirse una condición sobre una variable de la entidad.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_VAR_CHANGE);
