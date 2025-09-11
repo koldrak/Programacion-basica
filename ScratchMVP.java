@@ -464,7 +464,7 @@ public class ScratchMVP {
         final List<javax.swing.Timer> activeTimers = new ArrayList<>();
         Map<String, Integer> runningChains = new HashMap<>();
         Set<String> idleTriggered = new HashSet<>();
-        Map<String, List<javax.swing.Timer>> idleTimers = new HashMap<>();
+        Map<String, List<javax.swing.Timer>> entityTimers = new HashMap<>();
 
         GameRuntime(Project p, StagePanel s, Set<Integer> keysDown) {
             this.project = p;
@@ -475,7 +475,7 @@ public class ScratchMVP {
         void play() {
             stop();
             activeTimers.clear();
-            idleTimers.clear();
+            entityTimers.clear();
             tickLastFire.clear();
             varLast.clear();
             globalVarLast.clear();
@@ -512,7 +512,7 @@ public class ScratchMVP {
             }
             for (javax.swing.Timer t : activeTimers) t.stop();
             activeTimers.clear();
-            idleTimers.clear();
+            entityTimers.clear();
             runningChains.clear();
             idleTriggered.clear();
         }
@@ -748,46 +748,47 @@ public class ScratchMVP {
             stage.repaint();
         }
 
-        void abortIdle(Entity e) {
-            List<javax.swing.Timer> timers = idleTimers.remove(e.id);
+        void abortChains(Entity e) {
+            List<javax.swing.Timer> timers = entityTimers.remove(e.id);
             if (timers != null) {
                 for (javax.swing.Timer t : timers) {
                     t.stop();
                     activeTimers.remove(t);
                 }
-                finishChain(e, true);
             }
+            runningChains.remove(e.id);
+            e.moveVx = e.moveVy = 0;
+            e.moveUntilMs = 0;
+            e.moveTargetId = null;
+            e.moveFollow = false;
         }
 
-        void startChain(Entity e, Block b, boolean isIdle) {
-            if (!isIdle) {
-                abortIdle(e);
-            }
+        void startChain(Entity e, Block b) {
             runningChains.merge(e.id, 1, Integer::sum);
             idleTriggered.remove(e.id);
-            if (isIdle) {
-                idleTimers.put(e.id, new ArrayList<>());
-            }
-            if (executeChain(e, b, isIdle)) {
-                finishChain(e, isIdle);
+            entityTimers.computeIfAbsent(e.id, k -> new ArrayList<>());
+            if (executeChain(e, b)) {
+                finishChain(e);
             }
         }
 
-        void finishChain(Entity e, boolean isIdle) {
+        void finishChain(Entity e) {
             runningChains.merge(e.id, -1, Integer::sum);
             if (runningChains.getOrDefault(e.id, 0) <= 0) {
                 runningChains.remove(e.id);
-            }
-            if (isIdle) {
-                idleTimers.remove(e.id);
+                entityTimers.remove(e.id);
             }
         }
 
         void triggerEvent(Entity e, EventBlock ev) {
             boolean isIdle = ev.type == EventType.ON_IDLE;
-            if (ev.next != null) startChain(e, ev.next, isIdle);
+            if (!isIdle) {
+                abortChains(e);
+                idleTriggered.remove(e.id);
+            }
+            if (ev.next != null) startChain(e, ev.next);
             for (Block b : ev.extraNext) {
-                startChain(e, b, isIdle);
+                startChain(e, b);
             }
         }
 
@@ -806,11 +807,11 @@ public class ScratchMVP {
             return buildShape(e).contains(p);
         }
 
-        boolean executeChain(Entity e, Block b, boolean isIdle) {
+        boolean executeChain(Entity e, Block b) {
             Block current = b;
             while (current != null) {
                 if (current instanceof ActionBlock) {
-                    boolean cont = executeAction(e, (ActionBlock) current, isIdle);
+                    boolean cont = executeAction(e, (ActionBlock) current);
                     if (!cont) return false;
                     current = current.next;
                 } else {
@@ -820,7 +821,7 @@ public class ScratchMVP {
             return true;
         }
 
-        boolean executeAction(Entity e, ActionBlock ab, boolean isIdle) {
+        boolean executeAction(Entity e, ActionBlock ab) {
             switch (ab.type) {
                 case MOVE_BY -> {
                     String dir = String.valueOf(ab.args.getOrDefault("dir", "derecha"));
@@ -924,21 +925,17 @@ public class ScratchMVP {
                     javax.swing.Timer tm = new javax.swing.Timer((int) (secs * 1000), null);
                     tm.addActionListener(ev -> {
                         activeTimers.remove(tm);
-                        if (isIdle) {
-                            List<javax.swing.Timer> list = idleTimers.get(e.id);
-                            if (list == null) return;
-                            list.remove(tm);
-                        }
-                        if (executeChain(e, ab.next, isIdle)) {
-                            finishChain(e, isIdle);
+                        List<javax.swing.Timer> list = entityTimers.get(e.id);
+                        if (list == null) return;
+                        list.remove(tm);
+                        if (executeChain(e, ab.next)) {
+                            finishChain(e);
                         }
                     });
                     tm.setRepeats(false);
                     tm.start();
                     activeTimers.add(tm);
-                    if (isIdle) {
-                        idleTimers.computeIfAbsent(e.id, k -> new ArrayList<>()).add(tm);
-                    }
+                    entityTimers.computeIfAbsent(e.id, k -> new ArrayList<>()).add(tm);
                     return false;
                 }
                 case ROTATE_BY -> {
@@ -967,7 +964,7 @@ public class ScratchMVP {
                 case RANDOM -> {
                     if (!ab.extraNext.isEmpty()) {
                         Block chosen = ab.extraNext.get(new Random().nextInt(ab.extraNext.size()));
-                        executeChain(e, chosen, isIdle);
+                        executeChain(e, chosen);
                     }
                 }
                 case IF_VAR -> {
@@ -977,7 +974,7 @@ public class ScratchMVP {
                     double cur = e.vars.getOrDefault(var, 0.0);
                     boolean cond = op.equals(">") ? cur > target : cur < target;
                     if (cond && !ab.extraNext.isEmpty()) {
-                        executeChain(e, ab.extraNext.get(0), isIdle);
+                        executeChain(e, ab.extraNext.get(0));
                     }
                 }
                 case IF_GLOBAL_VAR -> {
@@ -987,13 +984,13 @@ public class ScratchMVP {
                     double cur = project.globalVars.getOrDefault(var, 0.0);
                     boolean cond = op.equals(">") ? cur > target : cur < target;
                     if (cond && !ab.extraNext.isEmpty()) {
-                        executeChain(e, ab.extraNext.get(0), isIdle);
+                        executeChain(e, ab.extraNext.get(0));
                     }
                 }
                 case IF_RANDOM_CHANCE -> {
                     double prob = Double.parseDouble(String.valueOf(ab.args.getOrDefault("prob", 0.5)));
                     if (Math.random() < prob && !ab.extraNext.isEmpty()) {
-                        executeChain(e, ab.extraNext.get(0), isIdle);
+                        executeChain(e, ab.extraNext.get(0));
                     }
                 }
                 case MOVE_TO_ENTITY -> {
