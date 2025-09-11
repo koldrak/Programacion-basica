@@ -2057,19 +2057,31 @@ public class ScratchMVP {
         }
 
         Map.Entry<String, Polygon> promptPolygon() {
-            class DrawPanel extends JPanel implements MouseListener {
+            class DrawPanel extends JPanel implements MouseListener, MouseMotionListener, KeyListener {
                 final java.util.List<Point> pts = new ArrayList<>();
+                int dragIdx = -1;
+                int hoverIdx = -1;
+                final int HIT = 6;
                 DrawPanel() {
                     setPreferredSize(new Dimension(300,300));
                     setBackground(Color.WHITE);
                     addMouseListener(this);
+                    addMouseMotionListener(this);
+                    addKeyListener(this);
+                    setFocusable(true);
+                }
+                int findIndex(Point p) {
+                    for (int i = 0; i < pts.size(); i++) {
+                        if (p.distance(pts.get(i)) <= HIT) return i;
+                    }
+                    return -1;
                 }
                 @Override protected void paintComponent(Graphics g) {
                     super.paintComponent(g);
                     Graphics2D g2 = (Graphics2D) g;
-                    g2.setColor(Color.BLACK);
                     for (int i=0;i<pts.size();i++) {
                         Point p = pts.get(i);
+                        g2.setColor(i == hoverIdx ? Color.RED : Color.BLACK);
                         g2.fillOval(p.x-3,p.y-3,6,6);
                         if (i>0) {
                             Point q = pts.get(i-1);
@@ -2077,11 +2089,45 @@ public class ScratchMVP {
                         }
                     }
                 }
-                @Override public void mouseClicked(MouseEvent e) { pts.add(e.getPoint()); repaint(); }
-                @Override public void mousePressed(MouseEvent e) {}
-                @Override public void mouseReleased(MouseEvent e) {}
+                @Override public void mouseClicked(MouseEvent e) {
+                    if (SwingUtilities.isLeftMouseButton(e)) {
+                        int idx = findIndex(e.getPoint());
+                        if (idx == -1) pts.add(e.getPoint());
+                    } else if (SwingUtilities.isRightMouseButton(e)) {
+                        int idx = findIndex(e.getPoint());
+                        if (idx != -1) pts.remove(idx);
+                        else if (!pts.isEmpty()) pts.remove(pts.size()-1);
+                    }
+                    repaint();
+                }
+                @Override public void mousePressed(MouseEvent e) {
+                    if (SwingUtilities.isLeftMouseButton(e)) {
+                        dragIdx = findIndex(e.getPoint());
+                    }
+                }
+                @Override public void mouseReleased(MouseEvent e) { dragIdx = -1; }
                 @Override public void mouseEntered(MouseEvent e) {}
                 @Override public void mouseExited(MouseEvent e) {}
+                @Override public void mouseDragged(MouseEvent e) {
+                    if (dragIdx != -1) {
+                        pts.get(dragIdx).setLocation(e.getPoint());
+                        repaint();
+                    }
+                }
+                @Override public void mouseMoved(MouseEvent e) {
+                    hoverIdx = findIndex(e.getPoint());
+                    repaint();
+                }
+                @Override public void keyPressed(KeyEvent e) {
+                    if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE || e.getKeyCode() == KeyEvent.VK_DELETE) {
+                        if (hoverIdx != -1) pts.remove(hoverIdx);
+                        else if (!pts.isEmpty()) pts.remove(pts.size()-1);
+                        hoverIdx = -1;
+                        repaint();
+                    }
+                }
+                @Override public void keyReleased(KeyEvent e) {}
+                @Override public void keyTyped(KeyEvent e) {}
             }
 
             DrawPanel dp = new DrawPanel();
