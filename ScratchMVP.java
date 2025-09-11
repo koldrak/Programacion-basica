@@ -2166,6 +2166,30 @@ public class ScratchMVP {
         }
     }
 
+    /**
+     * Panel desplazable que sigue el ancho del viewport, permitiendo que el
+     * {@link WrapLayout} distribuya los botones en múltiples filas sin que se
+     * desborden horizontalmente.
+     */
+    static class ScrollablePanel extends JPanel implements Scrollable {
+        ScrollablePanel(LayoutManager lm) { super(lm); }
+
+        @Override public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
+    }
+
     static class PalettePanel extends JPanel {
         ScriptCanvasPanel dropTarget;
 
@@ -2180,7 +2204,7 @@ public class ScratchMVP {
         }
 
         private JScrollPane createEventsPanel() {
-            JPanel p = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
+            ScrollablePanel p = new ScrollablePanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
             p.setBorder(new EmptyBorder(10,10,10,10));
             p.add(makeBtn("Al iniciar", "Se ejecuta una vez al comenzar la escena.", () -> new EventBlock(EventType.ON_START)));
             p.add(makeBtn("Al aparecer", "Se ejecuta cuando la entidad aparece en la escena.", () -> new EventBlock(EventType.ON_APPEAR)));
@@ -2239,7 +2263,7 @@ public class ScratchMVP {
         }
 
         private JScrollPane createConditionalsPanel() {
-            JPanel p = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
+            ScrollablePanel p = new ScrollablePanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
             p.setBorder(new EmptyBorder(10,10,10,10));
             p.add(makeBtn("Aleatorio", "Ejecuta una de las ramas conectadas al azar.", () -> new ActionBlock(ActionType.RANDOM)));
             p.add(makeBtn("Si variable...", "Ejecuta el bloque siguiente si la variable de la entidad cumple la condición.", () -> {
@@ -2265,7 +2289,7 @@ public class ScratchMVP {
         }
 
         private JScrollPane createActionsPanel() {
-            JPanel p = new JPanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
+            ScrollablePanel p = new ScrollablePanel(new WrapLayout(FlowLayout.LEFT, 5, 5));
             p.setBorder(new EmptyBorder(10,10,10,10));
             p.add(makeBtn("Mover...", "Mueve la entidad en la dirección, velocidad y tiempo indicados.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.MOVE_BY);
