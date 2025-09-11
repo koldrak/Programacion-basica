@@ -1375,13 +1375,9 @@ public class ScratchMVP {
             JPanel left = new JPanel(new BorderLayout());
             left.setPreferredSize(new Dimension(280, 100));
             palettePanel = new PalettePanel();
-            JScrollPane paletteScroll = new JScrollPane(palettePanel,
-                    JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-                    JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-            paletteScroll.getVerticalScrollBar().setUnitIncrement(16);
             entityListPanel = new EntityListPanel(project);
             globalVarPanel = new GlobalVarPanel(project);
-            left.add(paletteScroll, BorderLayout.CENTER);
+            left.add(palettePanel, BorderLayout.CENTER);
             JPanel bottom = new JPanel();
             bottom.setLayout(new BoxLayout(bottom, BoxLayout.Y_AXIS));
             bottom.add(entityListPanel);
@@ -1391,12 +1387,16 @@ public class ScratchMVP {
             // Center: Lienzo de scripts
             scriptCanvas = new ScriptCanvasPanel(project, entityListPanel);
             palettePanel.setDropTargetCanvas(scriptCanvas);
+            JScrollPane canvasScroll = new JScrollPane(scriptCanvas,
+                    JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                    JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+            canvasScroll.getVerticalScrollBar().setUnitIncrement(16);
 
             // Right: Inspector
             inspectorPanel = new InspectorPanel(project, entityListPanel, scriptCanvas);
 
             add(left, BorderLayout.WEST);
-            add(scriptCanvas, BorderLayout.CENTER);
+            add(canvasScroll, BorderLayout.CENTER);
             add(inspectorPanel, BorderLayout.EAST);
 
             // Listeners
@@ -2114,104 +2114,122 @@ public class ScratchMVP {
         ScriptCanvasPanel dropTarget;
 
         PalettePanel() {
-            super();
-            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
-            setBorder(new EmptyBorder(10,10,10,10));
-            add(new JLabel("Paleta de Bloques"));
-            add(Box.createVerticalStrut(6));
+            super(new BorderLayout());
+            JTabbedPane tabs = new JTabbedPane();
+            tabs.addTab("Eventos", createEventsPanel());
+            tabs.addTab("Condicionales", createConditionalsPanel());
+            tabs.addTab("Acciones", createActionsPanel());
+            add(new JLabel("Paleta de Bloques"), BorderLayout.NORTH);
+            add(tabs, BorderLayout.CENTER);
+        }
 
-            add(section("Eventos"));
-            add(makeBtn("Al iniciar", "Se ejecuta una vez al comenzar la escena.", () -> new EventBlock(EventType.ON_START)));
-            add(makeBtn("Al aparecer", "Se ejecuta cuando la entidad aparece en la escena.", () -> new EventBlock(EventType.ON_APPEAR)));
-            add(makeBtn("Cada (ms)...", "Repite las acciones cada intervalo en milisegundos.", () -> {
+        private JScrollPane createEventsPanel() {
+            JPanel p = new JPanel();
+            p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+            p.setBorder(new EmptyBorder(10,10,10,10));
+            p.add(makeBtn("Al iniciar", "Se ejecuta una vez al comenzar la escena.", () -> new EventBlock(EventType.ON_START)));
+            p.add(makeBtn("Al aparecer", "Se ejecuta cuando la entidad aparece en la escena.", () -> new EventBlock(EventType.ON_APPEAR)));
+            p.add(makeBtn("Cada (ms)...", "Repite las acciones cada intervalo en milisegundos.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_TICK);
                 b.args.put("intervalMs", 500);
                 return b;
             }));
-            add(makeBtn("Tecla ↓ ...", "Se ejecuta al presionar la tecla seleccionada.", () -> {
+            p.add(makeBtn("Tecla ↓ ...", "Se ejecuta al presionar la tecla seleccionada.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_KEY_DOWN);
                 b.args.put("keyCode", KeyEvent.VK_RIGHT);
                 return b;
             }));
-            add(makeBtn("Clic ratón", "Se ejecuta al hacer clic con el ratón.", () -> {
+            p.add(makeBtn("Clic ratón", "Se ejecuta al hacer clic con el ratón.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_MOUSE);
                 b.args.put("button", MouseEvent.BUTTON1);
                 return b;
             }));
-            add(makeBtn("Toca borde", "Se ejecuta cuando la entidad toca el borde del escenario.", () -> new EventBlock(EventType.ON_EDGE)));
-            add(makeBtn("Var de entidad >o<", "Se dispara al cumplirse una condición sobre una variable de la entidad.", () -> {
+            p.add(makeBtn("Toca borde", "Se ejecuta cuando la entidad toca el borde del escenario.", () -> new EventBlock(EventType.ON_EDGE)));
+            p.add(makeBtn("Var de entidad >o<", "Se dispara al cumplirse una condición sobre una variable de la entidad.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_VAR_CHANGE);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Var global >o<", "Se dispara al cumplirse una condición sobre una variable global.", () -> {
+            p.add(makeBtn("Var global >o<", "Se dispara al cumplirse una condición sobre una variable global.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_GLOBAL_VAR_CHANGE);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Colisión con...", "Se ejecuta al chocar con otra entidad.", () -> new EventBlock(EventType.ON_COLLIDE)));
-            add(makeBtn("Se acerca entidad...", "Se ejecuta cuando otra entidad se acerca dentro del radio indicado.", () -> {
+            p.add(makeBtn("Colisión con...", "Se ejecuta al chocar con otra entidad.", () -> new EventBlock(EventType.ON_COLLIDE)));
+            p.add(makeBtn("Se acerca entidad...", "Se ejecuta cuando otra entidad se acerca dentro del radio indicado.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_ENTITY_NEAR);
                 b.args.put("radius", 50.0);
                 return b;
             }));
-            add(makeBtn("Al estar libre", "Se ejecuta cuando la entidad no tiene otra cadena de eventos activa.", () -> new EventBlock(EventType.ON_IDLE)));
-            add(makeBtn("Mientras Var entidad", "Repite mientras la variable de la entidad cumpla la condición.", () -> {
+            p.add(makeBtn("Al estar libre", "Se ejecuta cuando la entidad no tiene otra cadena de eventos activa.", () -> new EventBlock(EventType.ON_IDLE)));
+            p.add(makeBtn("Mientras Var entidad", "Repite mientras la variable de la entidad cumpla la condición.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_WHILE_VAR);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Mientras Var global", "Repite mientras la variable global cumpla la condición.", () -> {
+            p.add(makeBtn("Mientras Var global", "Repite mientras la variable global cumpla la condición.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_WHILE_GLOBAL_VAR);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(Box.createVerticalStrut(10));
-            add(section("Condicionales"));
-            add(makeBtn("Aleatorio", "Ejecuta una de las ramas conectadas al azar.", () -> new ActionBlock(ActionType.RANDOM)));
-            add(makeBtn("Si variable...", "Ejecuta el bloque siguiente si la variable de la entidad cumple la condición.", () -> {
+            p.add(Box.createVerticalGlue());
+            return wrap(p);
+        }
+
+        private JScrollPane createConditionalsPanel() {
+            JPanel p = new JPanel();
+            p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+            p.setBorder(new EmptyBorder(10,10,10,10));
+            p.add(makeBtn("Aleatorio", "Ejecuta una de las ramas conectadas al azar.", () -> new ActionBlock(ActionType.RANDOM)));
+            p.add(makeBtn("Si variable...", "Ejecuta el bloque siguiente si la variable de la entidad cumple la condición.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.IF_VAR);
                 b.args.put("var", "var");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Si global...", "Ejecuta el bloque siguiente si una variable global cumple la condición.", () -> {
+            p.add(makeBtn("Si global...", "Ejecuta el bloque siguiente si una variable global cumple la condición.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.IF_GLOBAL_VAR);
                 b.args.put("var", "global");
                 b.args.put("op", ">");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Si probabilidad...", "Ejecuta el bloque siguiente con la probabilidad indicada (0-1).", () -> {
+            p.add(makeBtn("Si probabilidad...", "Ejecuta el bloque siguiente con la probabilidad indicada (0-1).", () -> {
                 ActionBlock b = new ActionBlock(ActionType.IF_RANDOM_CHANCE);
                 b.args.put("prob", 0.5);
                 return b;
             }));
-            add(Box.createVerticalStrut(10));
-            add(section("Acciones"));
-            add(makeBtn("Mover...", "Mueve la entidad en la dirección, velocidad y tiempo indicados.", () -> {
+            p.add(Box.createVerticalGlue());
+            return wrap(p);
+        }
+
+        private JScrollPane createActionsPanel() {
+            JPanel p = new JPanel();
+            p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+            p.setBorder(new EmptyBorder(10,10,10,10));
+            p.add(makeBtn("Mover...", "Mueve la entidad en la dirección, velocidad y tiempo indicados.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.MOVE_BY);
                 b.args.put("dir", "derecha");
                 b.args.put("speed", 100.0);
                 b.args.put("secs", 1.0);
                 return b;
             }));
-            add(makeBtn("Color...", "Cambia el color de la entidad.", () -> new ActionBlock(ActionType.SET_COLOR)));
-            add(makeBtn("Forma...", "Cambia la forma de la entidad.", () -> {
+            p.add(makeBtn("Color...", "Cambia el color de la entidad.", () -> new ActionBlock(ActionType.SET_COLOR)));
+            p.add(makeBtn("Forma...", "Cambia la forma de la entidad.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SET_SHAPE);
                 b.args.put("shape", "RECT");
                 return b;
             }));
-            add(makeBtn("Alternar formas...", "Alterna entre varias formas como animación.", () -> {
+            p.add(makeBtn("Alternar formas...", "Alterna entre varias formas como animación.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SWITCH_SHAPES);
                 java.util.List<String> forms = new ArrayList<>();
                 forms.add("RECT");
@@ -2221,89 +2239,86 @@ public class ScratchMVP {
                 b.args.put("duration", 1.0);
                 return b;
             }));
-            add(makeBtn("Decir...", "Muestra un mensaje sobre la entidad durante unos segundos.", () -> {
+            p.add(makeBtn("Decir...", "Muestra un mensaje sobre la entidad durante unos segundos.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SAY);
                 b.args.put("text", "¡Hola!");
                 b.args.put("secs", 2.0);
                 return b;
             }));
-            add(makeBtn("Asignar var entidad...", "Fija el valor de una variable de la entidad.", () -> {
+            p.add(makeBtn("Asignar var entidad...", "Fija el valor de una variable de la entidad.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SET_VAR);
                 b.args.put("var", "var");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Cambiar var entidad...", "Suma o resta a una variable de la entidad.", () -> {
+            p.add(makeBtn("Cambiar var entidad...", "Suma o resta a una variable de la entidad.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.CHANGE_VAR);
                 b.args.put("var", "var");
                 b.args.put("delta", 1);
                 return b;
             }));
-            add(makeBtn("Asignar var global...", "Fija el valor de una variable global.", () -> {
+            p.add(makeBtn("Asignar var global...", "Fija el valor de una variable global.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SET_GLOBAL_VAR);
                 b.args.put("var", "var");
                 b.args.put("value", 0);
                 return b;
             }));
-            add(makeBtn("Cambiar var global...", "Suma o resta a una variable global.", () -> {
+            p.add(makeBtn("Cambiar var global...", "Suma o resta a una variable global.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.CHANGE_GLOBAL_VAR);
                 b.args.put("var", "var");
                 b.args.put("delta", 1);
                 return b;
             }));
-            add(makeBtn("Esperar...", "Pausa la ejecución durante los segundos indicados.", () -> {
+            p.add(makeBtn("Esperar...", "Pausa la ejecución durante los segundos indicados.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.WAIT);
                 b.args.put("secs", 1.0);
                 return b;
             }));
-            add(makeBtn("Girar...", "Rota la entidad una cantidad de grados.", () -> {
+            p.add(makeBtn("Girar...", "Rota la entidad una cantidad de grados.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.ROTATE_BY);
                 b.args.put("deg", 15);
                 return b;
             }));
-            add(makeBtn("Apuntar a...", "Gira la entidad hacia un ángulo específico.", () -> {
+            p.add(makeBtn("Apuntar a...", "Gira la entidad hacia un ángulo específico.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.ROTATE_TO);
                 b.args.put("deg", 0);
                 return b;
             }));
-            add(makeBtn("Escalar x...", "Multiplica el tamaño por el factor indicado.", () -> {
+            p.add(makeBtn("Escalar x...", "Multiplica el tamaño por el factor indicado.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SCALE_BY);
                 b.args.put("factor", 1.1);
                 return b;
             }));
-            add(makeBtn("Tamaño...", "Fija un tamaño exacto para la entidad.", () -> {
+            p.add(makeBtn("Tamaño...", "Fija un tamaño exacto para la entidad.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SET_SIZE);
                 b.args.put("w", 60);
                 b.args.put("h", 60);
                 return b;
             }));
-            add(makeBtn("Opacidad...", "Cambia la transparencia de la entidad.", () -> {
+            p.add(makeBtn("Opacidad...", "Cambia la transparencia de la entidad.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.CHANGE_OPACITY);
                 b.args.put("delta", -0.1);
                 return b;
             }));
-            add(makeBtn("Mover a entidad...", "Mueve la entidad hacia otra seleccionada.", () -> new ActionBlock(ActionType.MOVE_TO_ENTITY)));
-            add(makeBtn("Crear entidad", "Crea una nueva copia de una entidad plantilla.", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
-            add(makeBtn("Eliminar entidad", "Elimina la entidad actual de la escena.", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
-            add(makeBtn("Escenario siguiente", "Cambia al siguiente escenario.", () -> new ActionBlock(ActionType.NEXT_SCENE)));
-            add(makeBtn("Escenario anterior", "Vuelve al escenario anterior.", () -> new ActionBlock(ActionType.PREV_SCENE)));
-            add(makeBtn("Ir a escenario...", "Salta al número de escenario indicado.", () -> {
+            p.add(makeBtn("Mover a entidad...", "Mueve la entidad hacia otra seleccionada.", () -> new ActionBlock(ActionType.MOVE_TO_ENTITY)));
+            p.add(makeBtn("Crear entidad", "Crea una nueva copia de una entidad plantilla.", () -> new ActionBlock(ActionType.SPAWN_ENTITY)));
+            p.add(makeBtn("Eliminar entidad", "Elimina la entidad actual de la escena.", () -> new ActionBlock(ActionType.DELETE_ENTITY)));
+            p.add(makeBtn("Escenario siguiente", "Cambia al siguiente escenario.", () -> new ActionBlock(ActionType.NEXT_SCENE)));
+            p.add(makeBtn("Escenario anterior", "Vuelve al escenario anterior.", () -> new ActionBlock(ActionType.PREV_SCENE)));
+            p.add(makeBtn("Ir a escenario...", "Salta al número de escenario indicado.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.GOTO_SCENE);
                 b.args.put("index", 1);
                 return b;
             }));
-            add(makeBtn("Detener", "Detiene la ejecución del programa.", () -> new ActionBlock(ActionType.STOP)));
-
-            add(Box.createVerticalGlue());
+            p.add(makeBtn("Detener", "Detiene la ejecución del programa.", () -> new ActionBlock(ActionType.STOP)));
+            p.add(Box.createVerticalGlue());
+            return wrap(p);
         }
 
-        JPanel section(String name) {
-            JPanel p = new JPanel(new BorderLayout());
-            JLabel l = new JLabel(name);
-            l.setFont(l.getFont().deriveFont(Font.BOLD));
-            p.add(l, BorderLayout.CENTER);
-            p.setBorder(new EmptyBorder(6,0,4,0));
-            return p;
+        private JScrollPane wrap(JPanel p) {
+            JScrollPane sp = new JScrollPane(p, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            sp.getVerticalScrollBar().setUnitIncrement(16);
+            return sp;
         }
 
         JButton makeBtn(String text, String tip, Supplier<Block> factory) {
