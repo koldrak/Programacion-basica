@@ -8,6 +8,7 @@ import java.awt.geom.*;
 import java.io.*;
 import java.util.*;
 import java.util.List;
+import java.awt.image.BufferedImage;
 
 /**
  * ScratchMVP - Editor + Escenario tipo Scratch (bloques mínimos).
@@ -40,6 +41,7 @@ public class ScratchMVP {
         double width = 60, height = 60; // si CIRCLE, usa radius = width/2
         double opacity = 1.0;
         Polygon customPolygon = null; // para formas personalizadas
+        transient BufferedImage paintImage = null; // capa de pintado
     }
 
     static class Entity implements Serializable {
@@ -135,7 +137,11 @@ public class ScratchMVP {
             case PENTAGON -> base = makeRegularPolygon(5, e.a.width, e.a.height);
             case HEXAGON -> base = makeRegularPolygon(6, e.a.width, e.a.height);
             case STAR -> base = makeStar(5, e.a.width, e.a.height);
-            case POLYGON -> base = (e.a.customPolygon != null ? e.a.customPolygon : new Rectangle2D.Double(-e.a.width / 2, -e.a.height / 2, e.a.width, e.a.height));
+            case POLYGON -> {
+                Shape poly = (e.a.customPolygon != null ? e.a.customPolygon : new Rectangle2D.Double(0, 0, e.a.width, e.a.height));
+                base = AffineTransform.getTranslateInstance(-e.a.width / 2, -e.a.height / 2)
+                        .createTransformedShape(poly);
+            }
             default -> base = new Rectangle2D.Double(-e.a.width / 2, -e.a.height / 2, e.a.width, e.a.height);
         }
         AffineTransform at = new AffineTransform();
@@ -166,6 +172,14 @@ public class ScratchMVP {
         } catch (IOException | ClassNotFoundException ex) {
             ex.printStackTrace();
         }
+    }
+
+    static BufferedImage copyImage(BufferedImage img) {
+        BufferedImage copy = new BufferedImage(img.getWidth(), img.getHeight(), img.getType());
+        Graphics2D g = copy.createGraphics();
+        g.drawImage(img, 0, 0, null);
+        g.dispose();
+        return copy;
     }
 
     // ====== BLOQUES ======
@@ -1260,6 +1274,11 @@ public class ScratchMVP {
             c.a.width = src.a.width;
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
+            if (src.a.paintImage != null) {
+                c.a.paintImage = copyImage(src.a.paintImage);
+            } else {
+                c.a.paintImage = null;
+            }
             if (src.a.customPolygon != null) {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
@@ -1341,7 +1360,7 @@ public class ScratchMVP {
         final ScriptCanvasPanel canvas;
 
         JComboBox<String> shapeBox;
-        JButton colorBtn;
+        JButton paintBtn;
         JSpinner wSpin, hSpin;
         PreviewPanel preview;
         DefaultListModel<String> varModel;
@@ -1363,7 +1382,7 @@ public class ScratchMVP {
             add(preview);
             add(Box.createVerticalStrut(8));
             shapeBox = new JComboBox<>(new String[]{"Rectángulo","Círculo","Triángulo","Pentágono","Hexágono","Estrella","Polígono personalizado"});
-            colorBtn = new JButton("Color...");
+            paintBtn = new JButton("Pintado...");
             wSpin = new JSpinner(new SpinnerNumberModel(60, 10, 500, 5));
             hSpin = new JSpinner(new SpinnerNumberModel(60, 10, 500, 5));
 
@@ -1372,7 +1391,7 @@ public class ScratchMVP {
             add(labeled("Ancho", wSpin));
             add(labeled("Alto/Radio", hSpin));
             add(Box.createVerticalStrut(6));
-            add(colorBtn);
+            add(paintBtn);
             add(Box.createVerticalStrut(10));
 
             add(new JLabel("Variables"));
@@ -1420,14 +1439,10 @@ public class ScratchMVP {
                 }
             });
 
-            colorBtn.addActionListener(e -> {
+            paintBtn.addActionListener(e -> {
                 Entity sel = listPanel.getSelected();
                 if (sel != null) {
-                    Color chosen = JColorChooser.showDialog(this, "Elegir color", sel.a.color);
-                    if (chosen != null) sel.a.color = chosen;
-                    canvas.repaint();
-                    propagateToScenarios(sel);
-                    preview.repaint();
+                    new PaintDialog(sel).setVisible(true);
                 }
             });
 
@@ -1546,6 +1561,17 @@ public class ScratchMVP {
                     Shape s = buildShape(tmp);
                     g2.setColor(sel.a.color);
                     g2.fill(s);
+                    if (sel.a.paintImage != null) {
+                        Graphics2D gImg = (Graphics2D) g2.create();
+                        gImg.setClip(s);
+                        AffineTransform at = new AffineTransform();
+                        at.translate(t.x + sel.a.width/2, t.y + sel.a.height/2);
+                        at.rotate(Math.toRadians(t.rot));
+                        at.scale(t.scaleX, t.scaleY);
+                        at.translate(-sel.a.width/2, -sel.a.height/2);
+                        gImg.drawImage(sel.a.paintImage, at, null);
+                        gImg.dispose();
+                    }
                     g2.setColor(Color.DARK_GRAY);
                     g2.draw(s);
                     g2.setComposite(old);
@@ -1554,10 +1580,119 @@ public class ScratchMVP {
             }
         }
 
+        class PaintDialog extends JDialog {
+            final Entity entity;
+            PaintDialog(Entity e) {
+                super((Frame)SwingUtilities.getWindowAncestor(InspectorPanel.this), "Pintado", false);
+                this.entity = e;
+                PaintCanvas pc = new PaintCanvas(e);
+                JSpinner sizeSpin = new JSpinner(new SpinnerNumberModel(10,1,100,1));
+                JButton colorBtn = new JButton("Color...");
+                colorBtn.addActionListener(ev -> {
+                    Color c = JColorChooser.showDialog(this, "Color de pincel", pc.brushColor);
+                    if (c != null) pc.brushColor = c;
+                });
+                sizeSpin.addChangeListener(ev -> pc.brushSize = ((Number)sizeSpin.getValue()).intValue());
+                JPanel top = new JPanel();
+                top.add(new JLabel("Grosor:"));
+                top.add(sizeSpin);
+                top.add(colorBtn);
+                add(top, BorderLayout.NORTH);
+                add(pc, BorderLayout.CENTER);
+                pack();
+                setLocationRelativeTo(InspectorPanel.this);
+            }
+        }
+
+        class PaintCanvas extends JPanel implements MouseListener, MouseMotionListener {
+            final Entity entity;
+            Color brushColor = Color.BLACK;
+            int brushSize = 10;
+            PaintCanvas(Entity e) {
+                this.entity = e;
+                setPreferredSize(new Dimension((int)e.a.width, (int)e.a.height));
+                addMouseListener(this);
+                addMouseMotionListener(this);
+            }
+            Shape getShape() {
+                switch (entity.a.shape) {
+                    case RECT -> {
+                        return new Rectangle2D.Double(0, 0, entity.a.width, entity.a.height);
+                    }
+                    case CIRCLE -> {
+                        return new Ellipse2D.Double(0, 0, entity.a.width, entity.a.width);
+                    }
+                    case TRIANGLE -> {
+                        Path2D t = new Path2D.Double();
+                        t.moveTo(entity.a.width/2, 0);
+                        t.lineTo(0, entity.a.height);
+                        t.lineTo(entity.a.width, entity.a.height);
+                        t.closePath();
+                        return t;
+                    }
+                    case PENTAGON -> {
+                        Shape s = makeRegularPolygon(5, entity.a.width, entity.a.height);
+                        return AffineTransform.getTranslateInstance(entity.a.width/2, entity.a.height/2).createTransformedShape(s);
+                    }
+                    case HEXAGON -> {
+                        Shape s = makeRegularPolygon(6, entity.a.width, entity.a.height);
+                        return AffineTransform.getTranslateInstance(entity.a.width/2, entity.a.height/2).createTransformedShape(s);
+                    }
+                    case STAR -> {
+                        Shape s = makeStar(5, entity.a.width, entity.a.height);
+                        return AffineTransform.getTranslateInstance(entity.a.width/2, entity.a.height/2).createTransformedShape(s);
+                    }
+                    case POLYGON -> {
+                        return entity.a.customPolygon != null ? entity.a.customPolygon : new Rectangle2D.Double(0,0,entity.a.width,entity.a.height);
+                    }
+                    default -> {
+                        return new Rectangle2D.Double(0, 0, entity.a.width, entity.a.height);
+                    }
+                }
+            }
+            @Override protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g.create();
+                Shape s = getShape();
+                g2.setColor(entity.a.color);
+                g2.fill(s);
+                if (entity.a.paintImage != null) {
+                    g2.setClip(s);
+                    g2.drawImage(entity.a.paintImage,0,0,null);
+                    g2.setClip(null);
+                }
+                g2.setColor(Color.DARK_GRAY);
+                g2.draw(s);
+                g2.dispose();
+            }
+            void paintAt(int x, int y) {
+                if (entity.a.paintImage == null || entity.a.paintImage.getWidth() != (int)entity.a.width || entity.a.paintImage.getHeight() != (int)entity.a.height) {
+                    entity.a.paintImage = new BufferedImage((int)entity.a.width, (int)entity.a.height, BufferedImage.TYPE_INT_ARGB);
+                }
+                Shape s = getShape();
+                Graphics2D g2 = entity.a.paintImage.createGraphics();
+                g2.setClip(s);
+                g2.setColor(brushColor);
+                g2.fillOval(x - brushSize/2, y - brushSize/2, brushSize, brushSize);
+                g2.dispose();
+                repaint();
+                InspectorPanel.this.canvas.repaint();
+                InspectorPanel.this.preview.repaint();
+                InspectorPanel.this.propagateToScenarios(entity);
+            }
+            @Override public void mouseDragged(MouseEvent e) { paintAt(e.getX(), e.getY()); }
+            @Override public void mousePressed(MouseEvent e) { paintAt(e.getX(), e.getY()); }
+            @Override public void mouseClicked(MouseEvent e) {}
+            @Override public void mouseReleased(MouseEvent e) {}
+            @Override public void mouseEntered(MouseEvent e) {}
+            @Override public void mouseExited(MouseEvent e) {}
+            @Override public void mouseMoved(MouseEvent e) {}
+        }
+
         void refresh() {
             Entity sel = listPanel.getSelected();
             boolean en = sel != null;
-            shapeBox.setEnabled(en); colorBtn.setEnabled(en);
+            shapeBox.setEnabled(en); paintBtn.setEnabled(en);
             // permitir redimensionar incluso en formas personalizadas
             wSpin.setEnabled(en); hSpin.setEnabled(en);
             btnAddVar.setEnabled(en); varList.setEnabled(en);
@@ -1600,6 +1735,11 @@ public class ScratchMVP {
                         en.a.width = tpl.a.width;
                         en.a.height = tpl.a.height;
                         en.a.opacity = tpl.a.opacity;
+                        if (tpl.a.paintImage != null) {
+                            en.a.paintImage = copyImage(tpl.a.paintImage);
+                        } else {
+                            en.a.paintImage = null;
+                        }
                         if (tpl.a.customPolygon != null) {
                             en.a.customPolygon = new Polygon(
                                     tpl.a.customPolygon.xpoints,
@@ -3095,6 +3235,11 @@ public class ScratchMVP {
             c.a.width = src.a.width;
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
+            if (src.a.paintImage != null) {
+                c.a.paintImage = copyImage(src.a.paintImage);
+            } else {
+                c.a.paintImage = null;
+            }
             if (src.a.customPolygon != null) {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
@@ -3195,6 +3340,17 @@ public class ScratchMVP {
                 Shape s = buildShape(e);
                 g2.setColor(e.a.color);
                 g2.fill(s);
+                if (e.a.paintImage != null) {
+                    Graphics2D gImg = (Graphics2D) g2.create();
+                    gImg.setClip(s);
+                    AffineTransform at = new AffineTransform();
+                    at.translate(e.t.x + e.a.width/2, e.t.y + e.a.height/2);
+                    at.rotate(Math.toRadians(e.t.rot));
+                    at.scale(e.t.scaleX, e.t.scaleY);
+                    at.translate(-e.a.width/2, -e.a.height/2);
+                    gImg.drawImage(e.a.paintImage, at, null);
+                    gImg.dispose();
+                }
                 g2.setColor(Color.DARK_GRAY);
                 g2.draw(s);
                 g2.setComposite(oldComp);
