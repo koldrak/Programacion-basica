@@ -137,7 +137,11 @@ public class ScratchMVP {
             case PENTAGON -> base = makeRegularPolygon(5, e.a.width, e.a.height);
             case HEXAGON -> base = makeRegularPolygon(6, e.a.width, e.a.height);
             case STAR -> base = makeStar(5, e.a.width, e.a.height);
-            case POLYGON -> base = (e.a.customPolygon != null ? e.a.customPolygon : new Rectangle2D.Double(-e.a.width / 2, -e.a.height / 2, e.a.width, e.a.height));
+            case POLYGON -> {
+                Shape poly = (e.a.customPolygon != null ? e.a.customPolygon : new Rectangle2D.Double(0, 0, e.a.width, e.a.height));
+                base = AffineTransform.getTranslateInstance(-e.a.width / 2, -e.a.height / 2)
+                        .createTransformedShape(poly);
+            }
             default -> base = new Rectangle2D.Double(-e.a.width / 2, -e.a.height / 2, e.a.width, e.a.height);
         }
         AffineTransform at = new AffineTransform();
