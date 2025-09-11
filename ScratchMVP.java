@@ -41,6 +41,7 @@ public class ScratchMVP {
         double width = 60, height = 60; // si CIRCLE, usa radius = width/2
         double opacity = 1.0;
         Polygon customPolygon = null; // para formas personalizadas
+        String shapeName = null; // nombre de forma personalizada
         transient BufferedImage paintImage = null; // capa de pintado
     }
 
@@ -78,6 +79,7 @@ public class ScratchMVP {
         // scripts por entidad (raíces de eventos)
         Map<String, List<EventBlock>> scriptsByEntity = new HashMap<>();
         Map<String, Double> globalVars = new HashMap<>();
+        Map<String, Polygon> shapes = new LinkedHashMap<>();
         Dimension canvas = new Dimension(800, 600);
         List<Scenario> scenarios = new ArrayList<>();
         int currentScenario = 0;
@@ -165,6 +167,7 @@ public class ScratchMVP {
             target.entities = src.entities;
             target.scriptsByEntity = src.scriptsByEntity;
             target.globalVars = src.globalVars;
+            target.shapes = src.shapes != null ? src.shapes : new LinkedHashMap<>();
             target.canvas = src.canvas;
             target.scenarios = src.scenarios != null ? src.scenarios : new ArrayList<>();
             if (target.scenarios.isEmpty()) target.scenarios.add(new Scenario());
@@ -1274,6 +1277,7 @@ public class ScratchMVP {
             c.a.width = src.a.width;
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
+            c.a.shapeName = src.a.shapeName;
             if (src.a.paintImage != null) {
                 c.a.paintImage = copyImage(src.a.paintImage);
             } else {
@@ -1381,7 +1385,7 @@ public class ScratchMVP {
             preview = new PreviewPanel();
             add(preview);
             add(Box.createVerticalStrut(8));
-            shapeBox = new JComboBox<>(new String[]{"Rectángulo","Círculo","Triángulo","Pentágono","Hexágono","Estrella","Polígono personalizado"});
+            shapeBox = new JComboBox<>();
             paintBtn = new JButton("Pintado...");
             wSpin = new JSpinner(new SpinnerNumberModel(60, 10, 500, 5));
             hSpin = new JSpinner(new SpinnerNumberModel(60, 10, 500, 5));
@@ -1409,28 +1413,54 @@ public class ScratchMVP {
 
             add(Box.createVerticalGlue());
 
+            updateShapeBoxModel();
+
             // Listeners
             shapeBox.addActionListener(e -> {
                 if (updating) return;
                 Entity sel = listPanel.getSelected();
                 if (sel != null) {
                     int idx = shapeBox.getSelectedIndex();
-                    switch (idx) {
-                        case 0 -> sel.a.shape = ShapeType.RECT;
-                        case 1 -> sel.a.shape = ShapeType.CIRCLE;
-                        case 2 -> sel.a.shape = ShapeType.TRIANGLE;
-                        case 3 -> sel.a.shape = ShapeType.PENTAGON;
-                        case 4 -> sel.a.shape = ShapeType.HEXAGON;
-                        case 5 -> sel.a.shape = ShapeType.STAR;
-                        case 6 -> {
-                            Polygon poly = promptPolygon();
-                            if (poly != null) {
-                                sel.a.shape = ShapeType.POLYGON;
-                                sel.a.customPolygon = poly;
-                                Rectangle b = poly.getBounds();
-                                sel.a.width = b.width;
-                                sel.a.height = b.height;
-                            }
+                    int baseCount = 6;
+                    int customCount = project.shapes.size();
+                    if (idx < baseCount) {
+                        sel.a.shapeName = null;
+                        switch (idx) {
+                            case 0 -> sel.a.shape = ShapeType.RECT;
+                            case 1 -> sel.a.shape = ShapeType.CIRCLE;
+                            case 2 -> sel.a.shape = ShapeType.TRIANGLE;
+                            case 3 -> sel.a.shape = ShapeType.PENTAGON;
+                            case 4 -> sel.a.shape = ShapeType.HEXAGON;
+                            case 5 -> sel.a.shape = ShapeType.STAR;
+                        }
+                    } else if (idx == baseCount + customCount) {
+                        Map.Entry<String, Polygon> res = promptPolygon();
+                        if (res != null) {
+                            String name = res.getKey();
+                            Polygon poly = res.getValue();
+                            project.shapes.put(name, poly);
+                            sel.a.shape = ShapeType.POLYGON;
+                            sel.a.customPolygon = new Polygon(poly.xpoints, poly.ypoints, poly.npoints);
+                            sel.a.shapeName = name;
+                            Rectangle b = poly.getBounds();
+                            sel.a.width = b.width;
+                            sel.a.height = b.height;
+                            updateShapeBoxModel();
+                            shapeBox.setSelectedItem(name);
+                        } else {
+                            refresh();
+                            return;
+                        }
+                    } else {
+                        String name = (String) shapeBox.getItemAt(idx);
+                        Polygon poly = project.shapes.get(name);
+                        if (poly != null) {
+                            sel.a.shape = ShapeType.POLYGON;
+                            sel.a.customPolygon = new Polygon(poly.xpoints, poly.ypoints, poly.npoints);
+                            sel.a.shapeName = name;
+                            Rectangle b = poly.getBounds();
+                            sel.a.width = b.width;
+                            sel.a.height = b.height;
                         }
                     }
                     canvas.repaint();
@@ -1689,7 +1719,23 @@ public class ScratchMVP {
             @Override public void mouseMoved(MouseEvent e) {}
         }
 
+        void updateShapeBoxModel() {
+            updating = true;
+            DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
+            model.addElement("Rectángulo");
+            model.addElement("Círculo");
+            model.addElement("Triángulo");
+            model.addElement("Pentágono");
+            model.addElement("Hexágono");
+            model.addElement("Estrella");
+            for (String n : project.shapes.keySet()) model.addElement(n);
+            model.addElement("Crear forma personalizada...");
+            shapeBox.setModel(model);
+            updating = false;
+        }
+
         void refresh() {
+            updateShapeBoxModel();
             Entity sel = listPanel.getSelected();
             boolean en = sel != null;
             shapeBox.setEnabled(en); paintBtn.setEnabled(en);
@@ -1697,17 +1743,25 @@ public class ScratchMVP {
             wSpin.setEnabled(en); hSpin.setEnabled(en);
             btnAddVar.setEnabled(en); varList.setEnabled(en);
             if (sel != null) {
-                int idx = switch(sel.a.shape){
-                    case RECT -> 0;
-                    case CIRCLE -> 1;
-                    case TRIANGLE -> 2;
-                    case PENTAGON -> 3;
-                    case HEXAGON -> 4;
-                    case STAR -> 5;
-                    case POLYGON -> 6;
-                };
                 updating = true;
-                shapeBox.setSelectedIndex(idx);
+                if (sel.a.shape == ShapeType.POLYGON) {
+                    if (sel.a.shapeName != null && project.shapes.containsKey(sel.a.shapeName)) {
+                        shapeBox.setSelectedItem(sel.a.shapeName);
+                    } else {
+                        shapeBox.setSelectedIndex(shapeBox.getItemCount()-1);
+                    }
+                } else {
+                    int idx = switch(sel.a.shape){
+                        case RECT -> 0;
+                        case CIRCLE -> 1;
+                        case TRIANGLE -> 2;
+                        case PENTAGON -> 3;
+                        case HEXAGON -> 4;
+                        case STAR -> 5;
+                        case POLYGON -> 0;
+                    };
+                    shapeBox.setSelectedIndex(idx);
+                }
                 wSpin.setValue((int)sel.a.width);
                 hSpin.setValue((int)sel.a.height);
                 updating = false;
@@ -1735,6 +1789,7 @@ public class ScratchMVP {
                         en.a.width = tpl.a.width;
                         en.a.height = tpl.a.height;
                         en.a.opacity = tpl.a.opacity;
+                        en.a.shapeName = tpl.a.shapeName;
                         if (tpl.a.paintImage != null) {
                             en.a.paintImage = copyImage(tpl.a.paintImage);
                         } else {
@@ -1755,7 +1810,7 @@ public class ScratchMVP {
             }
         }
 
-        Polygon promptPolygon() {
+        Map.Entry<String, Polygon> promptPolygon() {
             class DrawPanel extends JPanel implements MouseListener {
                 final java.util.List<Point> pts = new ArrayList<>();
                 DrawPanel() {
@@ -1786,7 +1841,8 @@ public class ScratchMVP {
             DrawPanel dp = new DrawPanel();
             JButton ok = new JButton("Aceptar");
             JButton cancel = new JButton("Cancelar");
-            final Polygon[] res = new Polygon[1];
+            final Polygon[] polyRes = new Polygon[1];
+            final String[] nameRes = new String[1];
             final JDialog dlg = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "Dibujar polígono", true);
             ok.addActionListener(ev -> {
                 if (dp.pts.size() >= 3) {
@@ -1796,17 +1852,31 @@ public class ScratchMVP {
                     for (int i = 0; i < p.npoints; i++) {
                         p.xpoints[i] -= b.x; p.ypoints[i] -= b.y;
                     }
-                    res[0] = p; dlg.dispose();
+                    String nm = JOptionPane.showInputDialog(dp, "Nombre de la forma:");
+                    if (nm != null && !nm.isBlank()) {
+                        if (project.shapes.containsKey(nm)) {
+                            JOptionPane.showMessageDialog(dp, "Ya existe una forma con ese nombre");
+                        } else {
+                            polyRes[0] = p;
+                            nameRes[0] = nm;
+                            dlg.dispose();
+                        }
+                    } else {
+                        JOptionPane.showMessageDialog(dp, "Debe ingresar un nombre.");
+                    }
                 } else {
                     JOptionPane.showMessageDialog(dp, "Se requieren al menos 3 puntos");
                 }
             });
-            cancel.addActionListener(ev -> { res[0] = null; dlg.dispose(); });
+            cancel.addActionListener(ev -> { polyRes[0] = null; dlg.dispose(); });
             JPanel bp = new JPanel(); bp.add(ok); bp.add(cancel);
             dlg.getContentPane().add(dp, BorderLayout.CENTER);
             dlg.getContentPane().add(bp, BorderLayout.SOUTH);
             dlg.pack(); dlg.setLocationRelativeTo(this); dlg.setVisible(true);
-            return res[0];
+            if (polyRes[0] != null) {
+                return new AbstractMap.SimpleEntry<>(nameRes[0], polyRes[0]);
+            }
+            return null;
         }
     }
 
@@ -3235,6 +3305,7 @@ public class ScratchMVP {
             c.a.width = src.a.width;
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
+            c.a.shapeName = src.a.shapeName;
             if (src.a.paintImage != null) {
                 c.a.paintImage = copyImage(src.a.paintImage);
             } else {
