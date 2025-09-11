@@ -188,7 +188,7 @@ public class ScratchMVP {
     // ====== BLOQUES ======
     enum BlockKind { EVENT, ACTION }
 
-    enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_ENTITY_NEAR, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
+    enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_ENTITY_NEAR, ON_IDLE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
     enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, NEXT_SCENE, PREV_SCENE, GOTO_SCENE, STOP }
 
     static abstract class Block implements Serializable {
@@ -249,6 +249,8 @@ public class ScratchMVP {
                     double radius = ((Number) args.getOrDefault("radius", 50.0)).doubleValue();
                     return "Evento: Se acerca " + name + " r=" + radius;
                 }
+                case ON_IDLE:
+                    return "Evento: Al estar libre";
                 case ON_WHILE_VAR:
                 {
                     String var = String.valueOf(args.getOrDefault("var","var"));
@@ -460,6 +462,8 @@ public class ScratchMVP {
         Map<EventBlock, Double> globalVarLast = new HashMap<>();
         final List<Runnable> pendingOps = new ArrayList<>();
         final List<javax.swing.Timer> activeTimers = new ArrayList<>();
+        Map<String, Integer> runningChains = new HashMap<>();
+        Set<String> idleTriggered = new HashSet<>();
 
         GameRuntime(Project p, StagePanel s, Set<Integer> keysDown) {
             this.project = p;
@@ -473,6 +477,8 @@ public class ScratchMVP {
             tickLastFire.clear();
             varLast.clear();
             globalVarLast.clear();
+            runningChains.clear();
+            idleTriggered.clear();
             // ON_START una vez
             for (Entity e : new ArrayList<>(stage.entities)) {
                 List<EventBlock> roots = project.scriptsByEntity.getOrDefault(e.id, Collections.emptyList());
@@ -504,6 +510,8 @@ public class ScratchMVP {
             }
             for (javax.swing.Timer t : activeTimers) t.stop();
             activeTimers.clear();
+            runningChains.clear();
+            idleTriggered.clear();
         }
 
         void update() {
@@ -702,6 +710,24 @@ public class ScratchMVP {
                 }
             }
 
+            // ON_IDLE
+            for (Entity en : new ArrayList<>(stage.entities)) {
+                int count = runningChains.getOrDefault(en.id, 0);
+                if (count == 0) {
+                    if (!idleTriggered.contains(en.id)) {
+                        List<EventBlock> roots = project.scriptsByEntity.getOrDefault(en.id, Collections.emptyList());
+                        for (EventBlock ev : roots) {
+                            if (ev.type == EventType.ON_IDLE) {
+                                triggerEvent(en, ev);
+                            }
+                        }
+                        idleTriggered.add(en.id);
+                    }
+                } else {
+                    idleTriggered.remove(en.id);
+                }
+            }
+
             // limpiar "decir" expirado
             long t = System.currentTimeMillis();
             for (Entity en : new ArrayList<>(stage.entities)) {
@@ -719,10 +745,25 @@ public class ScratchMVP {
             stage.repaint();
         }
 
+        void startChain(Entity e, Block b) {
+            runningChains.merge(e.id, 1, Integer::sum);
+            idleTriggered.remove(e.id);
+            if (executeChain(e, b)) {
+                finishChain(e);
+            }
+        }
+
+        void finishChain(Entity e) {
+            runningChains.merge(e.id, -1, Integer::sum);
+            if (runningChains.getOrDefault(e.id, 0) <= 0) {
+                runningChains.remove(e.id);
+            }
+        }
+
         void triggerEvent(Entity e, EventBlock ev) {
-            if (ev.next != null) executeChain(e, ev.next);
+            if (ev.next != null) startChain(e, ev.next);
             for (Block b : ev.extraNext) {
-                executeChain(e, b);
+                startChain(e, b);
             }
         }
 
@@ -741,17 +782,18 @@ public class ScratchMVP {
             return buildShape(e).contains(p);
         }
 
-        void executeChain(Entity e, Block b) {
+        boolean executeChain(Entity e, Block b) {
             Block current = b;
             while (current != null) {
                 if (current instanceof ActionBlock) {
                     boolean cont = executeAction(e, (ActionBlock) current);
-                    if (!cont) break;
+                    if (!cont) return false;
                     current = current.next;
                 } else {
                     current = current.next;
                 }
             }
+            return true;
         }
 
         boolean executeAction(Entity e, ActionBlock ab) {
@@ -858,7 +900,9 @@ public class ScratchMVP {
                     javax.swing.Timer tm = new javax.swing.Timer((int) (secs * 1000), null);
                     tm.addActionListener(ev -> {
                         activeTimers.remove(tm);
-                        executeChain(e, ab.next);
+                        if (executeChain(e, ab.next)) {
+                            finishChain(e);
+                        }
                     });
                     tm.setRepeats(false);
                     tm.start();
@@ -1930,6 +1974,7 @@ public class ScratchMVP {
                 b.args.put("radius", 50.0);
                 return b;
             }));
+            add(makeBtn("Al estar libre", "Se ejecuta cuando la entidad no tiene otra cadena de eventos activa.", () -> new EventBlock(EventType.ON_IDLE)));
             add(makeBtn("Mientras Var entidad", "Repite mientras la variable de la entidad cumpla la condición.", () -> {
                 EventBlock b = new EventBlock(EventType.ON_WHILE_VAR);
                 b.args.put("var", "var");
