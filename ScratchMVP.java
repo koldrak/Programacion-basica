@@ -189,7 +189,7 @@ public class ScratchMVP {
     enum BlockKind { EVENT, ACTION }
 
     enum EventType { ON_START, ON_APPEAR, ON_TICK, ON_KEY_DOWN, ON_MOUSE, ON_EDGE, ON_VAR_CHANGE, ON_GLOBAL_VAR_CHANGE, ON_COLLIDE, ON_ENTITY_NEAR, ON_IDLE, ON_WHILE_VAR, ON_WHILE_GLOBAL_VAR }
-    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, NEXT_SCENE, PREV_SCENE, GOTO_SCENE, STOP }
+    enum ActionType { MOVE_BY, SET_COLOR, SAY, SET_VAR, CHANGE_VAR, SET_GLOBAL_VAR, CHANGE_GLOBAL_VAR, WAIT, ROTATE_BY, ROTATE_TO, SCALE_BY, SET_SIZE, CHANGE_OPACITY, SET_SHAPE, SWITCH_SHAPES, RANDOM, IF_VAR, IF_GLOBAL_VAR, IF_RANDOM_CHANCE, MOVE_TO_ENTITY, SPAWN_ENTITY, DELETE_ENTITY, NEXT_SCENE, PREV_SCENE, GOTO_SCENE, STOP }
 
     static abstract class Block implements Serializable {
         final String id = UUID.randomUUID().toString();
@@ -317,6 +317,20 @@ public class ScratchMVP {
                     return "Acción: Tamaño (" + args.getOrDefault("w",60) + "," + args.getOrDefault("h",60) + ")";
                 case CHANGE_OPACITY:
                     return "Acción: Opacidad " + args.getOrDefault("delta",0.1);
+                case SET_SHAPE:
+                    String shp = String.valueOf(args.getOrDefault("shape","RECT"));
+                    String lbl = switch (shp) {
+                        case "CIRCLE" -> "círculo";
+                        case "TRIANGLE" -> "triángulo";
+                        case "PENTAGON" -> "pentágono";
+                        case "HEXAGON" -> "hexágono";
+                        case "STAR" -> "estrella";
+                        case "POLYGON" -> String.valueOf(args.getOrDefault("shapeName","polígono"));
+                        default -> "rectángulo";
+                    };
+                    return "Acción: Forma " + lbl;
+                case SWITCH_SHAPES:
+                    return "Acción: Alternar formas";
                 case RANDOM:
                     return "Acción: Aleatorio";
                 case IF_VAR:
@@ -849,6 +863,23 @@ public class ScratchMVP {
             return buildShape(e).contains(p);
         }
 
+        void applyShape(Entity e, String val) {
+            if (val != null && val.startsWith("POLYGON:")) {
+                String nm = val.substring(8);
+                e.a.shape = ShapeType.POLYGON;
+                e.a.shapeName = nm;
+                e.a.customPolygon = project.shapes.get(nm);
+            } else if (val != null) {
+                try {
+                    e.a.shape = ShapeType.valueOf(val);
+                } catch (Exception ex) {
+                    e.a.shape = ShapeType.RECT;
+                }
+                e.a.shapeName = null;
+                e.a.customPolygon = null;
+            }
+        }
+
         boolean executeChain(Entity e, Block b, boolean isIdle) {
             Block current = b;
             while (current != null) {
@@ -1029,6 +1060,56 @@ public class ScratchMVP {
                 case CHANGE_OPACITY -> {
                     double delta = Double.parseDouble(String.valueOf(ab.args.getOrDefault("delta", 0.1)));
                     e.a.opacity = Math.max(0, Math.min(1, e.a.opacity + delta));
+                }
+                case SET_SHAPE -> {
+                    String form = String.valueOf(ab.args.getOrDefault("shape", "RECT"));
+                    if ("POLYGON".equals(form)) {
+                        String name = (String) ab.args.get("shapeName");
+                        applyShape(e, "POLYGON:" + (name != null ? name : ""));
+                    } else {
+                        applyShape(e, form);
+                    }
+                }
+                case SWITCH_SHAPES -> {
+                    java.util.List<String> forms = (java.util.List<String>) ab.args.get("forms");
+                    if (forms == null || forms.size() < 2) break;
+                    double interval = Double.parseDouble(String.valueOf(ab.args.getOrDefault("interval", 0.2)));
+                    double duration = Double.parseDouble(String.valueOf(ab.args.getOrDefault("duration", 1.0)));
+                    ShapeType origType = e.a.shape;
+                    String origName = e.a.shapeName;
+                    Polygon origPoly = e.a.customPolygon;
+                    applyShape(e, forms.get(0));
+                    final int[] idx = {1};
+                    long start = System.currentTimeMillis();
+                    javax.swing.Timer tm = new javax.swing.Timer((int) (interval * 1000), null);
+                    tm.addActionListener(ev -> {
+                        if (System.currentTimeMillis() - start >= duration * 1000) {
+                            tm.stop();
+                            activeTimers.remove(tm);
+                            List<javax.swing.Timer> list = entityTimers.get(e.id);
+                            if (list != null) list.remove(tm);
+                            if (isIdle) {
+                                List<javax.swing.Timer> ilist = idleTimers.get(e.id);
+                                if (ilist != null) ilist.remove(tm);
+                            }
+                            e.a.shape = origType;
+                            e.a.shapeName = origName;
+                            e.a.customPolygon = origPoly;
+                            if (executeChain(e, ab.next, isIdle)) {
+                                finishChain(e, isIdle);
+                            }
+                            return;
+                        }
+                        applyShape(e, forms.get(idx[0] % forms.size()));
+                        idx[0]++;
+                        stage.repaint();
+                    });
+                    tm.setRepeats(true);
+                    tm.start();
+                    activeTimers.add(tm);
+                    entityTimers.computeIfAbsent(e.id, k -> new ArrayList<>()).add(tm);
+                    if (isIdle) idleTimers.computeIfAbsent(e.id, k -> new ArrayList<>()).add(tm);
+                    return false;
                 }
                 case RANDOM -> {
                     if (!ab.extraNext.isEmpty()) {
@@ -1451,7 +1532,14 @@ public class ScratchMVP {
                 copy = ev2;
             } else if (b instanceof ActionBlock ab) {
                 ActionBlock ab2 = new ActionBlock(ab.type);
-                ab2.args.putAll(ab.args);
+                for (Map.Entry<String, Object> en : ab.args.entrySet()) {
+                    Object v = en.getValue();
+                    if (v instanceof java.util.List<?> list) {
+                        ab2.args.put(en.getKey(), new ArrayList<>(list));
+                    } else {
+                        ab2.args.put(en.getKey(), v);
+                    }
+                }
                 for (Block extra : ab.extraNext) ab2.extraNext.add(cloneBlock(extra));
                 copy = ab2;
             } else {
@@ -2119,6 +2207,21 @@ public class ScratchMVP {
                 return b;
             }));
             add(makeBtn("Color...", "Cambia el color de la entidad.", () -> new ActionBlock(ActionType.SET_COLOR)));
+            add(makeBtn("Forma...", "Cambia la forma de la entidad.", () -> {
+                ActionBlock b = new ActionBlock(ActionType.SET_SHAPE);
+                b.args.put("shape", "RECT");
+                return b;
+            }));
+            add(makeBtn("Alternar formas...", "Alterna entre varias formas como animación.", () -> {
+                ActionBlock b = new ActionBlock(ActionType.SWITCH_SHAPES);
+                java.util.List<String> forms = new ArrayList<>();
+                forms.add("RECT");
+                forms.add("CIRCLE");
+                b.args.put("forms", forms);
+                b.args.put("interval", 0.2);
+                b.args.put("duration", 1.0);
+                return b;
+            }));
             add(makeBtn("Decir...", "Muestra un mensaje sobre la entidad durante unos segundos.", () -> {
                 ActionBlock b = new ActionBlock(ActionType.SAY);
                 b.args.put("text", "¡Hola!");
@@ -2470,7 +2573,14 @@ public class ScratchMVP {
             } else if (b instanceof ActionBlock) {
                 ActionBlock ab = (ActionBlock) b;
                 ActionBlock ab2 = new ActionBlock(ab.type);
-                ab2.args.putAll(ab.args);
+                for (Map.Entry<String, Object> en : ab.args.entrySet()) {
+                    Object v = en.getValue();
+                    if (v instanceof java.util.List<?> list) {
+                        ab2.args.put(en.getKey(), new ArrayList<>(list));
+                    } else {
+                        ab2.args.put(en.getKey(), v);
+                    }
+                }
                 if (ab.type == ActionType.RANDOM || ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE) {
                     for (Block extra : ab.extraNext) ab2.extraNext.add(cloneBlock(extra));
                 }
@@ -2776,6 +2886,95 @@ public class ScratchMVP {
                     case SET_COLOR -> {
                         Color chosen = JColorChooser.showDialog(this, "Elegir color", (Color) ab.args.getOrDefault("color", new Color(0xE74C3C)));
                         if (chosen != null) ab.args.put("color", chosen);
+                    }
+                    case SET_SHAPE -> {
+                        LinkedHashMap<String,String> map = new LinkedHashMap<>();
+                        map.put("Rectángulo","RECT");
+                        map.put("Círculo","CIRCLE");
+                        map.put("Triángulo","TRIANGLE");
+                        map.put("Pentágono","PENTAGON");
+                        map.put("Hexágono","HEXAGON");
+                        map.put("Estrella","STAR");
+                        for (String nm : canvas.project.shapes.keySet()) {
+                            map.put(nm, "POLYGON:" + nm);
+                        }
+                        JComboBox<String> box = new JComboBox<>(map.keySet().toArray(new String[0]));
+                        String cur = String.valueOf(ab.args.getOrDefault("shape", "RECT"));
+                        if ("POLYGON".equals(cur)) {
+                            String nm = (String) ab.args.get("shapeName");
+                            cur = "POLYGON:" + (nm != null ? nm : "");
+                        }
+                        for (Map.Entry<String,String> en : map.entrySet()) {
+                            if (en.getValue().equals(cur)) { box.setSelectedItem(en.getKey()); break; }
+                        }
+                        int r = JOptionPane.showConfirmDialog(this, box, "Forma", JOptionPane.OK_CANCEL_OPTION);
+                        if (r == JOptionPane.OK_OPTION) {
+                            String lbl = (String) box.getSelectedItem();
+                            String val = map.get(lbl);
+                            if (val.startsWith("POLYGON:")) {
+                                ab.args.put("shape", "POLYGON");
+                                ab.args.put("shapeName", val.substring(8));
+                            } else {
+                                ab.args.put("shape", val);
+                                ab.args.remove("shapeName");
+                            }
+                        }
+                    }
+                    case SWITCH_SHAPES -> {
+                        LinkedHashMap<String,String> map = new LinkedHashMap<>();
+                        map.put("Rectángulo","RECT");
+                        map.put("Círculo","CIRCLE");
+                        map.put("Triángulo","TRIANGLE");
+                        map.put("Pentágono","PENTAGON");
+                        map.put("Hexágono","HEXAGON");
+                        map.put("Estrella","STAR");
+                        for (String nm : canvas.project.shapes.keySet()) {
+                            map.put(nm, "POLYGON:" + nm);
+                        }
+                        String[] labels = map.keySet().toArray(new String[0]);
+                        java.util.List<String> forms = (java.util.List<String>) ab.args.getOrDefault("forms", new ArrayList<>(Arrays.asList("RECT","CIRCLE")));
+                        double interval = Double.parseDouble(String.valueOf(ab.args.getOrDefault("interval", 0.2)));
+                        double duration = Double.parseDouble(String.valueOf(ab.args.getOrDefault("duration", 1.0)));
+                        int max = 5;
+                        int count = Math.max(2, Math.min(max, forms.size()));
+                        JSpinner countSpin = new JSpinner(new SpinnerNumberModel(count, 2, max, 1));
+                        JComboBox<String>[] boxes = new JComboBox[max];
+                        JPanel pan = new JPanel(new GridLayout(max + 3, 2));
+                        pan.add(new JLabel("Cantidad")); pan.add(countSpin);
+                        for (int i = 0; i < max; i++) {
+                            boxes[i] = new JComboBox<>(labels);
+                            pan.add(new JLabel("Forma " + (i + 1)));
+                            pan.add(boxes[i]);
+                        }
+                        for (int i = 0; i < max; i++) {
+                            if (i < forms.size()) {
+                                String val = forms.get(i);
+                                for (Map.Entry<String,String> en : map.entrySet()) {
+                                    if (en.getValue().equals(val)) { boxes[i].setSelectedItem(en.getKey()); break; }
+                                }
+                            }
+                            boxes[i].setEnabled(i < count);
+                        }
+                        countSpin.addChangeListener(e -> {
+                            int c = (int) ((JSpinner) e.getSource()).getValue();
+                            for (int i = 0; i < max; i++) boxes[i].setEnabled(i < c);
+                        });
+                        JSpinner intSpin = new JSpinner(new SpinnerNumberModel(interval, 0.1, 1000.0, 0.1));
+                        JSpinner durSpin = new JSpinner(new SpinnerNumberModel(duration, 0.1, 1000.0, 0.1));
+                        pan.add(new JLabel("Intervalo (s)")); pan.add(intSpin);
+                        pan.add(new JLabel("Duración (s)")); pan.add(durSpin);
+                        int r = JOptionPane.showConfirmDialog(this, pan, "Alternar formas", JOptionPane.OK_CANCEL_OPTION);
+                        if (r == JOptionPane.OK_OPTION) {
+                            int c = (int) countSpin.getValue();
+                            java.util.List<String> newForms = new ArrayList<>();
+                            for (int i = 0; i < c; i++) {
+                                String lbl = (String) boxes[i].getSelectedItem();
+                                newForms.add(map.get(lbl));
+                            }
+                            ab.args.put("forms", newForms);
+                            ab.args.put("interval", ((Number) intSpin.getValue()).doubleValue());
+                            ab.args.put("duration", ((Number) durSpin.getValue()).doubleValue());
+                        }
                     }
                     case SAY -> {
                         String t = JOptionPane.showInputDialog(this, "Texto:", ab.args.getOrDefault("text", "¡Hola!"));
@@ -3482,7 +3681,14 @@ public class ScratchMVP {
             } else if (b instanceof ActionBlock) {
                 ActionBlock ab = (ActionBlock) b;
                 ActionBlock ab2 = new ActionBlock(ab.type);
-                ab2.args.putAll(ab.args);
+                for (Map.Entry<String, Object> en : ab.args.entrySet()) {
+                    Object v = en.getValue();
+                    if (v instanceof java.util.List<?> list) {
+                        ab2.args.put(en.getKey(), new ArrayList<>(list));
+                    } else {
+                        ab2.args.put(en.getKey(), v);
+                    }
+                }
                 if (ab.type == ActionType.RANDOM || ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE) {
                     for (Block extra : ab.extraNext) ab2.extraNext.add(cloneBlock(extra));
                 }
