@@ -1466,6 +1466,11 @@ public class ScratchMVP {
         final StagePanel stagePanel;
         GameRuntime runtime;
 
+        // Sistema de tutorial
+        final TutorialSystem tutorial = new TutorialSystem();
+        TutorialSystem.Mission currentMission = null;
+        javax.swing.Timer tutorialTimer;
+
         MainFrame() {
             super("Scratch MVP (Java Swing) — Editor y Escenario");
             setDefaultCloseOperation(EXIT_ON_CLOSE);
@@ -1500,6 +1505,25 @@ public class ScratchMVP {
             setContentPane(root);
             cards.show(root, "editor");
             loadLastProject();
+
+            // Iniciar y mostrar las misiones del tutorial
+            tutorialTimer = new javax.swing.Timer(1000, ev -> {
+                tutorial.actualizar(project);
+                TutorialSystem.Mission m = tutorial.obtenerMisionActual();
+                if (m != currentMission) {
+                    currentMission = m;
+                    if (m != null) {
+                        JOptionPane.showMessageDialog(this, m.instrucciones, m.nombre,
+                                JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this,
+                                "¡Has completado todas las misiones!",
+                                "Tutorial", JOptionPane.INFORMATION_MESSAGE);
+                    }
+                }
+            });
+            tutorialTimer.setInitialDelay(0);
+            tutorialTimer.start();
         }
 
         void loadLastProject() {
