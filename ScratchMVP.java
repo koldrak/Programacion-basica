@@ -37,6 +37,7 @@ public class ScratchMVP {
     }
 
     static class Appearance implements Serializable {
+        private static final long serialVersionUID = 9191861603754096743L;
         ShapeType shape = ShapeType.RECT;
         Color color = new Color(0x2E86DE);
         double width = 60, height = 60; // si CIRCLE, usa radius = width/2
@@ -76,6 +77,7 @@ public class ScratchMVP {
                 paintImageBytes.put(e.getKey(), baos.toByteArray());
             }
             out.defaultWriteObject();
+            paintImageBytes = null;
         }
 
         private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
@@ -89,6 +91,7 @@ public class ScratchMVP {
                 }
             }
             if (colorByShape == null) colorByShape = new HashMap<>();
+            paintImageBytes = null;
         }
     }
 
@@ -211,17 +214,45 @@ public class ScratchMVP {
     static void loadProject(Project target, File f) {
         try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(f))) {
             Project src = (Project) in.readObject();
-            target.entities = src.entities;
-            target.scriptsByEntity = src.scriptsByEntity;
-            target.globalVars = src.globalVars;
-            target.shapes = src.shapes != null ? src.shapes : new LinkedHashMap<>();
-            target.canvas = src.canvas;
-            target.scenarios = src.scenarios != null ? src.scenarios : new ArrayList<>();
-            if (target.scenarios.isEmpty()) target.scenarios.add(new Scenario());
-            target.currentScenario = src.currentScenario;
+            applyProject(target, src);
+        } catch (InvalidClassException ex) {
+            int opt = JOptionPane.showConfirmDialog(null,
+                    "El proyecto es de una version anterior\n¿quieres abrirlo igualmente?",
+                    "Version incompatible", JOptionPane.YES_NO_OPTION);
+            if (opt == JOptionPane.YES_OPTION) {
+                try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(f)) {
+                    @Override
+                    protected ObjectStreamClass readClassDescriptor() throws IOException, ClassNotFoundException {
+                        ObjectStreamClass desc = super.readClassDescriptor();
+                        try {
+                            Class<?> localClass = Class.forName(desc.getName());
+                            ObjectStreamClass localDesc = ObjectStreamClass.lookup(localClass);
+                            return localDesc != null ? localDesc : desc;
+                        } catch (ClassNotFoundException e) {
+                            return desc;
+                        }
+                    }
+                }) {
+                    Project src = (Project) in.readObject();
+                    applyProject(target, src);
+                } catch (IOException | ClassNotFoundException e) {
+                    e.printStackTrace();
+                }
+            }
         } catch (IOException | ClassNotFoundException ex) {
             ex.printStackTrace();
         }
+    }
+
+    private static void applyProject(Project target, Project src) {
+        target.entities = src.entities;
+        target.scriptsByEntity = src.scriptsByEntity;
+        target.globalVars = src.globalVars;
+        target.shapes = src.shapes != null ? src.shapes : new LinkedHashMap<>();
+        target.canvas = src.canvas;
+        target.scenarios = src.scenarios != null ? src.scenarios : new ArrayList<>();
+        if (target.scenarios.isEmpty()) target.scenarios.add(new Scenario());
+        target.currentScenario = src.currentScenario;
     }
 
     static BufferedImage copyImage(BufferedImage img) {
