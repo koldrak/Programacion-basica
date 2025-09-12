@@ -2083,9 +2083,9 @@ public class ScratchMVP {
                     Graphics2D g2 = (Graphics2D) g;
                     if (onion != null) {
                         Rectangle b = onion.getBounds();
-                        AffineTransform at = AffineTransform.getTranslateInstance(
-                                (getWidth()-b.width)/2.0 - b.x,
-                                (getHeight()-b.height)/2.0 - b.y);
+                        AffineTransform at = new AffineTransform();
+                        at.translate(getWidth() / 2.0 - b.getCenterX(),
+                                     getHeight() / 2.0 - b.getCenterY());
                         Shape s = at.createTransformedShape(onion);
                         g2.setColor(new Color(0,0,0,50));
                         g2.fill(s);
