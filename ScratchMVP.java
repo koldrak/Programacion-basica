@@ -106,6 +106,7 @@ public class ScratchMVP {
         Transform t = new Transform();
         Appearance a = new Appearance();
         Map<String, Double> vars = new HashMap<>();
+        Set<String> visibleVars = new HashSet<>();
 
         // Runtime UI (globo de texto)
         String sayText = null;
@@ -155,6 +156,7 @@ public class ScratchMVP {
         // scripts por entidad (raíces de eventos)
         Map<String, List<EventBlock>> scriptsByEntity = new HashMap<>();
         Map<String, Double> globalVars = new HashMap<>();
+        Set<String> visibleGlobalVars = new HashSet<>();
         Map<String, Polygon> shapes = new LinkedHashMap<>();
         Dimension canvas = new Dimension(800, 600);
         List<Scenario> scenarios = new ArrayList<>();
@@ -274,11 +276,21 @@ public class ScratchMVP {
         target.entities = src.entities;
         target.scriptsByEntity = src.scriptsByEntity;
         target.globalVars = src.globalVars;
+        target.visibleGlobalVars = src.visibleGlobalVars != null ? src.visibleGlobalVars : new HashSet<>(target.globalVars.keySet());
         target.shapes = src.shapes != null ? src.shapes : new LinkedHashMap<>();
         target.canvas = src.canvas;
         target.scenarios = src.scenarios != null ? src.scenarios : new ArrayList<>();
         if (target.scenarios.isEmpty()) target.scenarios.add(new Scenario());
         target.currentScenario = src.currentScenario;
+        // ensure visibility sets for entities
+        for (Entity e : target.entities) {
+            if (e.visibleVars == null) e.visibleVars = new HashSet<>(e.vars.keySet());
+        }
+        for (Scenario sc : target.scenarios) {
+            for (Entity e : sc.entities) {
+                if (e.visibleVars == null) e.visibleVars = new HashSet<>(e.vars.keySet());
+            }
+        }
     }
 
     static BufferedImage copyImage(BufferedImage img) {
@@ -508,6 +520,7 @@ public class ScratchMVP {
         final DefaultListModel<String> model = new DefaultListModel<>();
         final JList<String> list = new JList<>(model);
         JSpinner valueSpin;
+        JCheckBox visibleCheck;
         JButton btnAdd, btnDel;
 
         GlobalVarPanel(Project project) {
@@ -520,6 +533,8 @@ public class ScratchMVP {
             add(new JScrollPane(list));
             valueSpin = new JSpinner(new SpinnerNumberModel(0.0, -1e9, 1e9, 1.0));
             add(labeled("Valor", valueSpin));
+            visibleCheck = new JCheckBox();
+            add(labeled("Visible", visibleCheck));
             JPanel b = new JPanel(new FlowLayout(FlowLayout.LEFT,5,0));
             btnAdd = new JButton("Agregar");
             btnDel = new JButton("Eliminar");
@@ -532,12 +547,25 @@ public class ScratchMVP {
                 boolean ok = name != null;
                 valueSpin.setEnabled(ok);
                 btnDel.setEnabled(ok);
-                if (ok) valueSpin.setValue(project.globalVars.getOrDefault(name, 0.0));
+                visibleCheck.setEnabled(ok);
+                if (ok) {
+                    valueSpin.setValue(project.globalVars.getOrDefault(name, 0.0));
+                    if (project.visibleGlobalVars == null) project.visibleGlobalVars = new HashSet<>(project.globalVars.keySet());
+                    visibleCheck.setSelected(project.visibleGlobalVars.contains(name));
+                }
             });
             valueSpin.addChangeListener(ev -> {
                 String name = list.getSelectedValue();
                 if (name != null) {
                     project.globalVars.put(name, ((Number)valueSpin.getValue()).doubleValue());
+                }
+            });
+            visibleCheck.addActionListener(ev -> {
+                String name = list.getSelectedValue();
+                if (name != null) {
+                    if (project.visibleGlobalVars == null) project.visibleGlobalVars = new HashSet<>(project.globalVars.keySet());
+                    if (visibleCheck.isSelected()) project.visibleGlobalVars.add(name);
+                    else project.visibleGlobalVars.remove(name);
                 }
             });
             btnAdd.addActionListener(ev -> {
@@ -552,6 +580,8 @@ public class ScratchMVP {
                     if (!name.isEmpty() && !project.globalVars.containsKey(name)) {
                         double v = ((Number)valSpin.getValue()).doubleValue();
                         project.globalVars.put(name, v);
+                        if (project.visibleGlobalVars == null) project.visibleGlobalVars = new HashSet<>();
+                        project.visibleGlobalVars.add(name);
                         refresh();
                     }
                 }
@@ -560,6 +590,7 @@ public class ScratchMVP {
                 String name = list.getSelectedValue();
                 if (name != null) {
                     project.globalVars.remove(name);
+                    if (project.visibleGlobalVars != null) project.visibleGlobalVars.remove(name);
                     refresh();
                 }
             });
@@ -577,11 +608,17 @@ public class ScratchMVP {
         void refresh() {
             model.clear();
             for (String v : project.globalVars.keySet()) model.addElement(v);
+            if (project.visibleGlobalVars == null) project.visibleGlobalVars = new HashSet<>(project.globalVars.keySet());
             String sel = list.getSelectedValue();
             boolean ok = sel != null && project.globalVars.containsKey(sel);
             valueSpin.setEnabled(ok);
             btnDel.setEnabled(ok);
-            if (ok) valueSpin.setValue(project.globalVars.getOrDefault(sel, 0.0));
+            visibleCheck.setEnabled(ok);
+            if (ok) {
+                valueSpin.setValue(project.globalVars.getOrDefault(sel, 0.0));
+                if (project.visibleGlobalVars == null) project.visibleGlobalVars = new HashSet<>(project.globalVars.keySet());
+                visibleCheck.setSelected(project.visibleGlobalVars.contains(sel));
+            }
         }
     }
 
@@ -1116,23 +1153,31 @@ public class ScratchMVP {
                     String var = String.valueOf(ab.args.getOrDefault("var", "var"));
                     double val = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
                     e.vars.put(var, val);
+                    if (e.visibleVars == null) e.visibleVars = new HashSet<>();
+                    e.visibleVars.add(var);
                 }
                 case CHANGE_VAR -> {
                     String cvar = String.valueOf(ab.args.getOrDefault("var", "var"));
                     double delta = Double.parseDouble(String.valueOf(ab.args.getOrDefault("delta", 1)));
                     double cur = e.vars.getOrDefault(cvar, 0.0);
                     e.vars.put(cvar, cur + delta);
+                    if (e.visibleVars == null) e.visibleVars = new HashSet<>();
+                    e.visibleVars.add(cvar);
                 }
                 case SET_GLOBAL_VAR -> {
                     String var = String.valueOf(ab.args.getOrDefault("var", "var"));
                     double val = Double.parseDouble(String.valueOf(ab.args.getOrDefault("value", 0)));
                     project.globalVars.put(var, val);
+                    if (project.visibleGlobalVars == null) project.visibleGlobalVars = new HashSet<>();
+                    project.visibleGlobalVars.add(var);
                 }
                 case CHANGE_GLOBAL_VAR -> {
                     String var = String.valueOf(ab.args.getOrDefault("var", "var"));
                     double delta = Double.parseDouble(String.valueOf(ab.args.getOrDefault("delta", 1)));
                     double cur = project.globalVars.getOrDefault(var, 0.0);
                     project.globalVars.put(var, cur + delta);
+                    if (project.visibleGlobalVars == null) project.visibleGlobalVars = new HashSet<>();
+                    project.visibleGlobalVars.add(var);
                 }
                 case WAIT -> {
                     double secs = Double.parseDouble(String.valueOf(ab.args.getOrDefault("secs", 1.0)));
@@ -1668,6 +1713,11 @@ public class ScratchMVP {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
             c.vars.putAll(src.vars);
+            if (src.visibleVars != null) {
+                c.visibleVars.addAll(src.visibleVars);
+            } else {
+                c.visibleVars.addAll(src.vars.keySet());
+            }
             return c;
         }
 
@@ -1758,6 +1808,7 @@ public class ScratchMVP {
         DefaultListModel<String> varModel;
         JList<String> varList;
         JSpinner varValue;
+        JCheckBox varVisible;
         JButton btnAddVar, btnDelVar;
         boolean updating = false;
 
@@ -1793,6 +1844,8 @@ public class ScratchMVP {
             add(new JScrollPane(varList));
             varValue = new JSpinner(new SpinnerNumberModel(0.0, -1e9, 1e9, 1.0));
             add(labeled("Valor", varValue));
+            varVisible = new JCheckBox();
+            add(labeled("Visible", varVisible));
             JPanel vb = new JPanel(new FlowLayout(FlowLayout.LEFT,5,0));
             btnAddVar = new JButton("Agregar");
             btnDelVar = new JButton("Eliminar");
@@ -1902,8 +1955,11 @@ public class ScratchMVP {
                 boolean ok = sel != null && name != null;
                 varValue.setEnabled(ok);
                 btnDelVar.setEnabled(ok);
+                varVisible.setEnabled(ok);
                 if (ok) {
                     varValue.setValue(sel.vars.getOrDefault(name, 0.0));
+                    if (sel.visibleVars == null) sel.visibleVars = new HashSet<>(sel.vars.keySet());
+                    varVisible.setSelected(sel.visibleVars.contains(name));
                 }
             });
             varValue.addChangeListener(ev -> {
@@ -1911,6 +1967,17 @@ public class ScratchMVP {
                 String name = varList.getSelectedValue();
                 if (sel != null && name != null) {
                     sel.vars.put(name, ((Number)varValue.getValue()).doubleValue());
+                    canvas.repaint();
+                    propagateToScenarios(sel);
+                }
+            });
+            varVisible.addActionListener(ev -> {
+                Entity sel = listPanel.getSelected();
+                String name = varList.getSelectedValue();
+                if (sel != null && name != null) {
+                    if (sel.visibleVars == null) sel.visibleVars = new HashSet<>(sel.vars.keySet());
+                    if (varVisible.isSelected()) sel.visibleVars.add(name);
+                    else sel.visibleVars.remove(name);
                     canvas.repaint();
                     propagateToScenarios(sel);
                 }
@@ -1929,6 +1996,8 @@ public class ScratchMVP {
                         if (!name.isEmpty() && !sel.vars.containsKey(name)) {
                             double val = ((Number)valSpin.getValue()).doubleValue();
                             sel.vars.put(name, val);
+                            if (sel.visibleVars == null) sel.visibleVars = new HashSet<>();
+                            sel.visibleVars.add(name);
                             refresh();
                             propagateToScenarios(sel);
                         }
@@ -1940,6 +2009,7 @@ public class ScratchMVP {
                 String name = varList.getSelectedValue();
                 if (sel != null && name != null) {
                     sel.vars.remove(name);
+                    if (sel.visibleVars != null) sel.visibleVars.remove(name);
                     refresh();
                     propagateToScenarios(sel);
                 }
@@ -2136,6 +2206,7 @@ public class ScratchMVP {
             btnAddVar.setEnabled(en); varList.setEnabled(en);
             if (sel != null) {
                 updating = true;
+                if (sel.visibleVars == null) sel.visibleVars = new HashSet<>(sel.vars.keySet());
                 if (sel.a.shape == ShapeType.POLYGON) {
                     if (sel.a.shapeName != null && project.shapes.containsKey(sel.a.shapeName)) {
                         shapeBox.setSelectedItem(sel.a.shapeName);
@@ -2166,8 +2237,10 @@ public class ScratchMVP {
             boolean vs = en && name != null;
             varValue.setEnabled(vs);
             btnDelVar.setEnabled(vs);
+            varVisible.setEnabled(vs);
             if (vs) {
                 varValue.setValue(sel.vars.getOrDefault(name, 0.0));
+                varVisible.setSelected(sel.visibleVars.contains(name));
             }
             preview.repaint();
         }
@@ -2198,6 +2271,12 @@ public class ScratchMVP {
                         }
                         en.vars.clear();
                         en.vars.putAll(tpl.vars);
+                        en.visibleVars.clear();
+                        if (tpl.visibleVars != null) {
+                            en.visibleVars.addAll(tpl.visibleVars);
+                        } else {
+                            en.visibleVars.addAll(tpl.vars.keySet());
+                        }
                     }
                 }
             }
@@ -3707,6 +3786,7 @@ public class ScratchMVP {
         final List<Entity> snapshot = new ArrayList<>();
         Map<String, List<EventBlock>> scriptSnapshot = new HashMap<>();
         Map<String, Double> globalVarSnapshot = new HashMap<>();
+        Set<String> globalVarVisibleSnapshot = new HashSet<>();
         int currentScenario = 0;
         JSpinner scenarioSpin;
 
@@ -3911,6 +3991,11 @@ public class ScratchMVP {
                 scriptSnapshot.clear();
                 globalVarSnapshot.clear();
                 globalVarSnapshot.putAll(project.globalVars);
+                if (project.visibleGlobalVars == null) {
+                    project.visibleGlobalVars = new HashSet<>(project.globalVars.keySet());
+                }
+                globalVarVisibleSnapshot.clear();
+                globalVarVisibleSnapshot.addAll(project.visibleGlobalVars);
                 for (Entity en : entities) {
                     snapshot.add(cloneEntity(en, true));
                     scriptSnapshot.put(en.id, cloneScripts(en.id));
@@ -3931,6 +4016,8 @@ public class ScratchMVP {
                 project.scriptsByEntity.clear();
                 project.globalVars.clear();
                 project.globalVars.putAll(globalVarSnapshot);
+                project.visibleGlobalVars.clear();
+                project.visibleGlobalVars.addAll(globalVarVisibleSnapshot);
                 for (Entity en : snapshot) {
                     Entity c = cloneEntity(en, true);
                     entities.add(c);
@@ -4029,6 +4116,11 @@ public class ScratchMVP {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
             c.vars.putAll(src.vars);
+            if (src.visibleVars != null) {
+                c.visibleVars.addAll(src.visibleVars);
+            } else {
+                c.visibleVars.addAll(src.vars.keySet());
+            }
             return c;
         }
 
@@ -4120,9 +4212,14 @@ public class ScratchMVP {
 
                 g2.setColor(Color.DARK_GRAY);
                 int gy = 15;
+                if (project.visibleGlobalVars == null) {
+                    project.visibleGlobalVars = new HashSet<>(project.globalVars.keySet());
+                }
                 for (Map.Entry<String, Double> gv : project.globalVars.entrySet()) {
-                    g2.drawString(gv.getKey() + ": " + gv.getValue(), 10, gy);
-                    gy += 15;
+                    if (project.visibleGlobalVars.contains(gv.getKey())) {
+                        g2.drawString(gv.getKey() + ": " + gv.getValue(), 10, gy);
+                        gy += 15;
+                    }
                 }
 
                 // dibujar entidades
@@ -4154,10 +4251,15 @@ public class ScratchMVP {
                 g2.draw(s);
                 g2.setComposite(oldComp);
                 g2.setColor(Color.DARK_GRAY);
+                if (e.visibleVars == null) {
+                    e.visibleVars = new HashSet<>(e.vars.keySet());
+                }
                 int vy = (int)e.t.y - 18;
                 for (Map.Entry<String, Double> var : e.vars.entrySet()) {
-                    g2.drawString(var.getKey() + ":" + var.getValue(), (int)e.t.x + 4, vy);
-                    vy -= 12;
+                    if (e.visibleVars.contains(var.getKey())) {
+                        g2.drawString(var.getKey() + ":" + var.getValue(), (int)e.t.x + 4, vy);
+                        vy -= 12;
+                    }
                 }
                 g2.drawString(e.name, (int)e.t.x + 4, (int)e.t.y - 4);
                 if (e == selectedEntity) {
