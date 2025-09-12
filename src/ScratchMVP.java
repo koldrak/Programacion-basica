@@ -1466,6 +1466,11 @@ public class ScratchMVP {
         final StagePanel stagePanel;
         GameRuntime runtime;
 
+        // Sistema de tutorial
+        final TutorialSystem tutorial = new TutorialSystem();
+        TutorialSystem.Mission currentMission = tutorial.obtenerMisionActual();
+        final TutorialPanel tutorialPanel;
+
         MainFrame() {
             super("Scratch MVP (Java Swing) — Editor y Escenario");
             setDefaultCloseOperation(EXIT_ON_CLOSE);
@@ -1481,11 +1486,28 @@ public class ScratchMVP {
                 stagePanel.requestFocusInWindow();
                 stagePanel.repaint();
             });
+            tutorialPanel = new TutorialPanel(tutorial);
 
             // Runtime
             runtime = new GameRuntime(project, stagePanel, keysDown);
             stagePanel.setRuntimeControls(
-                    () -> runtime.play(),
+                    () -> {
+                        runtime.play();
+                        tutorial.actualizar(project);
+                        TutorialSystem.Mission m = tutorial.obtenerMisionActual();
+                        if (m != currentMission) {
+                            currentMission = m;
+                            if (m != null) {
+                                JOptionPane.showMessageDialog(stagePanel, m.instrucciones, m.nombre,
+                                        JOptionPane.INFORMATION_MESSAGE);
+                            } else {
+                                JOptionPane.showMessageDialog(stagePanel,
+                                        "¡Has completado todas las misiones!",
+                                        "Tutorial", JOptionPane.INFORMATION_MESSAGE);
+                            }
+                        }
+                        tutorialPanel.refresh();
+                    },
                     () -> runtime.stop(),
                     () -> { // volver al editor
                         runtime.stop();
@@ -1494,12 +1516,18 @@ public class ScratchMVP {
                     });
             stagePanel.setRuntime(runtime);
 
-            root.add(editorPanel, "editor");
+            JTabbedPane editorTabs = new JTabbedPane();
+            editorTabs.addTab("Editor", editorPanel);
+            editorTabs.addTab("Tutorial", tutorialPanel);
+
+            root.add(editorTabs, "editor");
             root.add(stagePanel, "stage");
 
             setContentPane(root);
             cards.show(root, "editor");
             loadLastProject();
+            tutorial.actualizar(project);
+            tutorialPanel.refresh();
         }
 
         void loadLastProject() {
@@ -3759,6 +3787,60 @@ public class ScratchMVP {
             }
             // fallback
             return KeyEvent.VK_RIGHT;
+        }
+    }
+
+    // ====== PANEL TUTORIAL ======
+    static class TutorialPanel extends JPanel {
+        final TutorialSystem tutorial;
+        final JList<TutorialSystem.Mission> list;
+        final JTextArea info;
+
+        TutorialPanel(TutorialSystem t) {
+            super(new BorderLayout());
+            this.tutorial = t;
+            DefaultListModel<TutorialSystem.Mission> model = new DefaultListModel<>();
+            list = new JList<>(model);
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            info = new JTextArea();
+            info.setEditable(false);
+            info.setLineWrap(true);
+            info.setWrapStyleWord(true);
+            list.addListSelectionListener(e -> {
+                TutorialSystem.Mission m = list.getSelectedValue();
+                info.setText(m != null ? m.instrucciones : "");
+            });
+            list.setCellRenderer((lst, value, index, isSelected, cellHasFocus) -> {
+                JLabel lbl = new JLabel();
+                int idx = tutorial.getIndiceActual();
+                String prefix = index < idx ? "✔ " : index == idx ? "▶ " : "✖ ";
+                lbl.setText(prefix + value.nombre);
+                if (isSelected) {
+                    lbl.setBackground(lst.getSelectionBackground());
+                    lbl.setForeground(lst.getSelectionForeground());
+                } else {
+                    lbl.setBackground(lst.getBackground());
+                    lbl.setForeground(lst.getForeground());
+                }
+                lbl.setOpaque(true);
+                return lbl;
+            });
+            JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
+                    new JScrollPane(list), new JScrollPane(info));
+            split.setResizeWeight(0.5);
+            add(split, BorderLayout.CENTER);
+            refresh();
+        }
+
+        void refresh() {
+            DefaultListModel<TutorialSystem.Mission> model =
+                    (DefaultListModel<TutorialSystem.Mission>) list.getModel();
+            model.removeAllElements();
+            java.util.List<TutorialSystem.Mission> mis = tutorial.getMisiones();
+            for (TutorialSystem.Mission m : mis) model.addElement(m);
+            int idx = tutorial.getIndiceActual();
+            if (idx < mis.size()) list.setSelectedIndex(idx);
+            else if (!mis.isEmpty()) list.setSelectedIndex(mis.size() - 1);
         }
     }
 

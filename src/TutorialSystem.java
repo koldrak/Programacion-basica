@@ -50,6 +50,14 @@ public class TutorialSystem {
         }
     }
 
+    public List<Mission> getMisiones() {
+        return misiones;
+    }
+
+    public int getIndiceActual() {
+        return indiceActual;
+    }
+
     // ====== Definición de misiones ======
 
     private static Mission m1() {
