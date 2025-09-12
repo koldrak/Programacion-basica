@@ -2,6 +2,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
@@ -28,6 +29,7 @@ import javax.imageio.ImageIO;
 public class ScratchMVP {
 
     static final File PROJECTS_DIR = new File("proyectos");
+    static final File BACKGROUNDS_DIR = new File("fondos");
 
     // ====== MODELO BÁSICO ======
     enum ShapeType { RECT, CIRCLE, TRIANGLE, PENTAGON, HEXAGON, STAR, POLYGON }
@@ -122,6 +124,30 @@ public class ScratchMVP {
     static class Scenario implements Serializable {
         List<Entity> entities = new ArrayList<>();
         Map<String, List<EventBlock>> scriptsByEntity = new HashMap<>();
+        String backgroundImage;
+        transient BufferedImage background;
+
+        BufferedImage getBackground() {
+            if (background == null && backgroundImage != null) {
+                try {
+                    background = ImageIO.read(new File(BACKGROUNDS_DIR, backgroundImage));
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                }
+            }
+            return background;
+        }
+
+        void setBackground(File f) {
+            try {
+                background = ImageIO.read(f);
+                backgroundImage = f.getName();
+            } catch (IOException ex) {
+                ex.printStackTrace();
+                background = null;
+                backgroundImage = null;
+            }
+        }
     }
 
     static class Project implements Serializable {
@@ -1378,6 +1404,9 @@ public class ScratchMVP {
         if (!PROJECTS_DIR.exists()) {
             PROJECTS_DIR.mkdirs();
         }
+        if (!BACKGROUNDS_DIR.exists()) {
+            BACKGROUNDS_DIR.mkdirs();
+        }
         SwingUtilities.invokeLater(() -> new MainFrame().setVisible(true));
     }
 
@@ -1425,6 +1454,31 @@ public class ScratchMVP {
 
             setContentPane(root);
             cards.show(root, "editor");
+            loadLastProject();
+        }
+
+        void loadLastProject() {
+            File[] files = PROJECTS_DIR.listFiles();
+            if (files == null || files.length == 0) return;
+            File last = null;
+            for (File f : files) {
+                if (f.isFile()) {
+                    if (last == null || f.lastModified() > last.lastModified()) last = f;
+                }
+            }
+            if (last != null) {
+                loadProject(project, last);
+                stagePanel.size.setSize(project.canvas);
+                project.canvas = stagePanel.size;
+                if (stagePanel.widthSpin != null) stagePanel.widthSpin.setValue(stagePanel.size.width);
+                if (stagePanel.heightSpin != null) stagePanel.heightSpin.setValue(stagePanel.size.height);
+                if (stagePanel.canvasView != null) {
+                    stagePanel.canvasView.setPreferredSize(stagePanel.size);
+                    stagePanel.canvasView.revalidate();
+                }
+                editorPanel.refreshAll();
+                stagePanel.repaint();
+            }
         }
     }
 
@@ -3640,6 +3694,7 @@ public class ScratchMVP {
 
         final Dimension size;
         int border = 20;
+        CanvasView canvasView;
         // Entidades actualmente presentes en el escenario (separadas de las plantillas del proyecto)
         final List<Entity> entities = new ArrayList<>();
         // Respaldo de scripts del editor para restaurar al volver
@@ -3756,6 +3811,7 @@ public class ScratchMVP {
             JButton btnDelEntity = new JButton("Eliminar Entidad");
             JButton btnNewScene = new JButton("Crear Escenario");
             JButton btnDelScene = new JButton("Eliminar Escenario");
+            JButton btnSetBg = new JButton("Fondo...");
             bar.add(btnBack);
             bar.add(btnPlay); bar.add(btnStop);
             bar.add(Box.createHorizontalStrut(20));
@@ -3764,7 +3820,7 @@ public class ScratchMVP {
             bar.add(new JLabel("Escenario:"));
             scenarioSpin = new JSpinner(new SpinnerNumberModel(1,1,1,1));
             bar.add(scenarioSpin);
-            bar.add(btnNewScene); bar.add(btnDelScene);
+            bar.add(btnNewScene); bar.add(btnDelScene); bar.add(btnSetBg);
             bar.add(Box.createHorizontalStrut(20));
             bar.add(new JLabel("Borde:"));
             JSpinner borderSpin = new JSpinner(new SpinnerNumberModel(border, 0, 200, 5));
@@ -3778,20 +3834,20 @@ public class ScratchMVP {
             add(bar, BorderLayout.NORTH);
 
             // Canvas
-            CanvasView cv = new CanvasView();
-            cv.setPreferredSize(size);
-            cv.setBackground(Color.WHITE);
-            cv.setFocusable(true);
-            cv.addKeyListener(this);
-            cv.addMouseListener(this);
-            cv.addMouseMotionListener(this);
-            add(cv, BorderLayout.CENTER);
+            canvasView = new CanvasView();
+            canvasView.setPreferredSize(size);
+            canvasView.setBackground(Color.WHITE);
+            canvasView.setFocusable(true);
+            canvasView.addKeyListener(this);
+            canvasView.addMouseListener(this);
+            canvasView.addMouseMotionListener(this);
+            add(canvasView, BorderLayout.CENTER);
 
             ChangeListener szListener = e -> {
                 size.width = (int) widthSpin.getValue();
                 size.height = (int) heightSpin.getValue();
-                cv.setPreferredSize(size);
-                cv.revalidate();
+                canvasView.setPreferredSize(size);
+                canvasView.revalidate();
                 repaint();
             };
             widthSpin.addChangeListener(szListener);
@@ -3814,6 +3870,17 @@ public class ScratchMVP {
                 project.scenarios.remove(currentScenario);
                 int idx = Math.min(currentScenario, project.scenarios.size()-1);
                 switchScenario(idx, false);
+            });
+
+            btnSetBg.addActionListener(e -> {
+                JFileChooser fc = new JFileChooser(BACKGROUNDS_DIR);
+                fc.setFileFilter(new FileNameExtensionFilter("PNG", "png"));
+                if (fc.showOpenDialog(StagePanel.this) == JFileChooser.APPROVE_OPTION) {
+                    File f = fc.getSelectedFile();
+                    Scenario sc = project.scenarios.get(currentScenario);
+                    sc.setBackground(f);
+                    repaint();
+                }
             });
 
             btnBack.addActionListener(e -> {
@@ -3847,7 +3914,7 @@ public class ScratchMVP {
                     scriptSnapshot.put(en.id, cloneScripts(en.id));
                 }
                 requestFocusInWindow();
-                cv.requestFocusInWindow();
+                canvasView.requestFocusInWindow();
                 if (onPlay != null) onPlay.run();
             });
             btnStop.addActionListener(e -> {
@@ -4034,14 +4101,20 @@ public class ScratchMVP {
                 int w = stageWidth();
                 int h = stageHeight();
 
-                // fondo del escenario
-                g2.setColor(new Color(0xF4F6F7));
-                g2.fillRect(0,0,w,h);
+                  // fondo del escenario
+                  Scenario sc = project.scenarios.get(currentScenario);
+                  BufferedImage bg = sc.getBackground();
+                  if (bg != null) {
+                      g2.drawImage(bg, 0, 0, w, h, null);
+                  } else {
+                      g2.setColor(new Color(0xF4F6F7));
+                      g2.fillRect(0,0,w,h);
 
-                // rejilla ligera
-                g2.setColor(new Color(0xEAECEE));
-                for (int x=0; x<w; x+=40) g2.drawLine(x,0,x,h);
-                for (int y=0; y<h; y+=40) g2.drawLine(0,y,w,y);
+                      // rejilla ligera
+                      g2.setColor(new Color(0xEAECEE));
+                      for (int x=0; x<w; x+=40) g2.drawLine(x,0,x,h);
+                      for (int y=0; y<h; y+=40) g2.drawLine(0,y,w,y);
+                  }
 
                 g2.setColor(Color.DARK_GRAY);
                 int gy = 15;
