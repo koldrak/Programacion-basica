@@ -42,7 +42,35 @@ public class ScratchMVP {
         double opacity = 1.0;
         Polygon customPolygon = null; // para formas personalizadas
         String shapeName = null; // nombre de forma personalizada
-        transient BufferedImage paintImage = null; // capa de pintado
+        Map<String, BufferedImage> paintImages = new HashMap<>();
+        Map<String, Color> colorByShape = new HashMap<>();
+
+        String shapeKey() {
+            return shape == ShapeType.POLYGON ? "POLYGON:" + (shapeName != null ? shapeName : "") : shape.name();
+        }
+
+        Color getColor() {
+            return colorByShape.getOrDefault(shapeKey(), color);
+        }
+
+        void setColor(Color c) {
+            colorByShape.put(shapeKey(), c);
+        }
+
+        BufferedImage getPaintImage() {
+            return paintImages.get(shapeKey());
+        }
+
+        void setPaintImage(BufferedImage img) {
+            if (img == null) paintImages.remove(shapeKey());
+            else paintImages.put(shapeKey(), img);
+        }
+
+        private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+            in.defaultReadObject();
+            if (paintImages == null) paintImages = new HashMap<>();
+            if (colorByShape == null) colorByShape = new HashMap<>();
+        }
     }
 
     static class Entity implements Serializable {
@@ -1000,7 +1028,7 @@ public class ScratchMVP {
                 }
                 case SET_COLOR -> {
                     Color chosenColor = (Color) ab.args.getOrDefault("color", new Color(0xE74C3C));
-                    e.a.color = chosenColor;
+                    e.a.setColor(chosenColor);
                 }
                 case SAY -> {
                     String text = String.valueOf(ab.args.getOrDefault("text", "¡Hola!"));
@@ -1526,10 +1554,11 @@ public class ScratchMVP {
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
             c.a.shapeName = src.a.shapeName;
-            if (src.a.paintImage != null) {
-                c.a.paintImage = copyImage(src.a.paintImage);
-            } else {
-                c.a.paintImage = null;
+            for (Map.Entry<String, Color> en : src.a.colorByShape.entrySet()) {
+                c.a.colorByShape.put(en.getKey(), en.getValue());
+            }
+            for (Map.Entry<String, BufferedImage> en : src.a.paintImages.entrySet()) {
+                c.a.paintImages.put(en.getKey(), copyImage(en.getValue()));
             }
             if (src.a.customPolygon != null) {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
@@ -1844,9 +1873,10 @@ public class ScratchMVP {
                     Composite old = g2.getComposite();
                     g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) sel.a.opacity));
                     Shape s = buildShape(tmp);
-                    g2.setColor(sel.a.color);
+                    g2.setColor(sel.a.getColor());
                     g2.fill(s);
-                    if (sel.a.paintImage != null) {
+                    BufferedImage img = sel.a.getPaintImage();
+                    if (img != null) {
                         Graphics2D gImg = (Graphics2D) g2.create();
                         gImg.setClip(s);
                         AffineTransform at = new AffineTransform();
@@ -1854,7 +1884,7 @@ public class ScratchMVP {
                         at.rotate(Math.toRadians(t.rot));
                         at.scale(t.scaleX, t.scaleY);
                         at.translate(-sel.a.width/2, -sel.a.height/2);
-                        gImg.drawImage(sel.a.paintImage, at, null);
+                        gImg.drawImage(img, at, null);
                         gImg.dispose();
                     }
                     g2.setColor(Color.DARK_GRAY);
@@ -1939,11 +1969,12 @@ public class ScratchMVP {
                 super.paintComponent(g);
                 Graphics2D g2 = (Graphics2D) g.create();
                 Shape s = getShape();
-                g2.setColor(entity.a.color);
+                g2.setColor(entity.a.getColor());
                 g2.fill(s);
-                if (entity.a.paintImage != null) {
+                BufferedImage img = entity.a.getPaintImage();
+                if (img != null) {
                     g2.setClip(s);
-                    g2.drawImage(entity.a.paintImage,0,0,null);
+                    g2.drawImage(img,0,0,null);
                     g2.setClip(null);
                 }
                 g2.setColor(Color.DARK_GRAY);
@@ -1951,11 +1982,13 @@ public class ScratchMVP {
                 g2.dispose();
             }
             void paintAt(int x, int y) {
-                if (entity.a.paintImage == null || entity.a.paintImage.getWidth() != (int)entity.a.width || entity.a.paintImage.getHeight() != (int)entity.a.height) {
-                    entity.a.paintImage = new BufferedImage((int)entity.a.width, (int)entity.a.height, BufferedImage.TYPE_INT_ARGB);
+                BufferedImage img = entity.a.getPaintImage();
+                if (img == null || img.getWidth() != (int)entity.a.width || img.getHeight() != (int)entity.a.height) {
+                    img = new BufferedImage((int)entity.a.width, (int)entity.a.height, BufferedImage.TYPE_INT_ARGB);
+                    entity.a.setPaintImage(img);
                 }
                 Shape s = getShape();
-                Graphics2D g2 = entity.a.paintImage.createGraphics();
+                Graphics2D g2 = img.createGraphics();
                 g2.setClip(s);
                 g2.setColor(brushColor);
                 g2.fillOval(x - brushSize/2, y - brushSize/2, brushSize, brushSize);
@@ -2045,10 +2078,11 @@ public class ScratchMVP {
                         en.a.height = tpl.a.height;
                         en.a.opacity = tpl.a.opacity;
                         en.a.shapeName = tpl.a.shapeName;
-                        if (tpl.a.paintImage != null) {
-                            en.a.paintImage = copyImage(tpl.a.paintImage);
-                        } else {
-                            en.a.paintImage = null;
+                        en.a.colorByShape.clear();
+                        en.a.colorByShape.putAll(tpl.a.colorByShape);
+                        en.a.paintImages.clear();
+                        for (Map.Entry<String, BufferedImage> enImg : tpl.a.paintImages.entrySet()) {
+                            en.a.paintImages.put(enImg.getKey(), copyImage(enImg.getValue()));
                         }
                         if (tpl.a.customPolygon != null) {
                             en.a.customPolygon = new Polygon(
@@ -3857,10 +3891,11 @@ public class ScratchMVP {
             c.a.height = src.a.height;
             c.a.opacity = src.a.opacity;
             c.a.shapeName = src.a.shapeName;
-            if (src.a.paintImage != null) {
-                c.a.paintImage = copyImage(src.a.paintImage);
-            } else {
-                c.a.paintImage = null;
+            for (Map.Entry<String, Color> en : src.a.colorByShape.entrySet()) {
+                c.a.colorByShape.put(en.getKey(), en.getValue());
+            }
+            for (Map.Entry<String, BufferedImage> en : src.a.paintImages.entrySet()) {
+                c.a.paintImages.put(en.getKey(), copyImage(en.getValue()));
             }
             if (src.a.customPolygon != null) {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
@@ -3967,9 +4002,10 @@ public class ScratchMVP {
                 Composite oldComp = g2.getComposite();
                 g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) e.a.opacity));
                 Shape s = buildShape(e);
-                g2.setColor(e.a.color);
+                g2.setColor(e.a.getColor());
                 g2.fill(s);
-                if (e.a.paintImage != null) {
+                BufferedImage img = e.a.getPaintImage();
+                if (img != null) {
                     Graphics2D gImg = (Graphics2D) g2.create();
                     gImg.setClip(s);
                     AffineTransform at = new AffineTransform();
@@ -3977,7 +4013,7 @@ public class ScratchMVP {
                     at.rotate(Math.toRadians(e.t.rot));
                     at.scale(e.t.scaleX, e.t.scaleY);
                     at.translate(-e.a.width/2, -e.a.height/2);
-                    gImg.drawImage(e.a.paintImage, at, null);
+                    gImg.drawImage(img, at, null);
                     gImg.dispose();
                 }
                 g2.setColor(Color.DARK_GRAY);
