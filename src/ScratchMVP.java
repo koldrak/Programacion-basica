@@ -4144,6 +4144,7 @@ public class ScratchMVP {
                         }
                         entities.add(clone);
                         project.scriptsByEntity.put(clone.id, cloneScripts(tpl.id));
+                        saveToScenario();
                         selectedEntity = clone;
                         repaint();
                     }
@@ -4405,6 +4406,7 @@ public class ScratchMVP {
                     if (hit(en, p)) {
                         entities.remove(en);
                         project.scriptsByEntity.remove(en.id);
+                        StagePanel.this.saveToScenario();
                         if (selectedEntity == en) selectedEntity = null;
                         if (dragEntity == en) { dragEntity = null; dragOffset = null; }
                         repaint();
