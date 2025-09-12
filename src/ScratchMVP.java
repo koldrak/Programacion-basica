@@ -1468,8 +1468,9 @@ public class ScratchMVP {
 
         // Sistema de tutorial
         final TutorialSystem tutorial = new TutorialSystem();
-        TutorialSystem.Mission currentMission = null;
-        javax.swing.Timer tutorialTimer;
+        TutorialSystem.Mission currentMission = tutorial.obtenerMisionActual();
+        final TutorialPanel tutorialPanel;
+        final JDialog tutorialDialog;
 
         MainFrame() {
             super("Scratch MVP (Java Swing) — Editor y Escenario");
@@ -1479,18 +1480,48 @@ public class ScratchMVP {
 
             // Panels
             stagePanel = new StagePanel(project, keysDown);
+            tutorialPanel = new TutorialPanel(tutorial);
+            tutorialDialog = new JDialog(this, "Tutorial", false);
+            tutorialDialog.setContentPane(tutorialPanel);
+            tutorialDialog.pack();
+            tutorialDialog.setSize(400, 300);
+            tutorialDialog.setLocationRelativeTo(this);
+
             editorPanel = new EditorPanel(project, () -> {
                 // al pulsar "Ir al Escenario"
                 stagePanel.loadCurrentScenario();
                 cards.show(root, "stage");
                 stagePanel.requestFocusInWindow();
                 stagePanel.repaint();
-            });
+            }, () -> tutorialDialog.setVisible(true));
 
             // Runtime
             runtime = new GameRuntime(project, stagePanel, keysDown);
             stagePanel.setRuntimeControls(
-                    () -> runtime.play(),
+                    () -> {
+                        runtime.play();
+                        tutorial.actualizar(project);
+                        TutorialSystem.Mission m = tutorial.obtenerMisionActual();
+                        if (m != currentMission) {
+                            int completada = tutorial.getIndiceActual();
+                            String titulo = "Tutorial " + completada + " completado";
+                            String msg = "Has completado el Tutorial " + completada + ".";
+                            if (m != null) {
+                                String cont = "Continuar con tutorial " + (completada + 1);
+                                JOptionPane.showOptionDialog(stagePanel, msg, titulo,
+                                        JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
+                                        null, new Object[]{cont}, cont);
+                                JOptionPane.showMessageDialog(stagePanel, m.instrucciones, m.nombre,
+                                        JOptionPane.INFORMATION_MESSAGE);
+                            } else {
+                                JOptionPane.showMessageDialog(stagePanel,
+                                        msg + "\n¡Has completado todas las misiones!",
+                                        titulo, JOptionPane.INFORMATION_MESSAGE);
+                            }
+                            currentMission = m;
+                        }
+                        tutorialPanel.refresh();
+                    },
                     () -> runtime.stop(),
                     () -> { // volver al editor
                         runtime.stop();
@@ -1505,25 +1536,8 @@ public class ScratchMVP {
             setContentPane(root);
             cards.show(root, "editor");
             loadLastProject();
-
-            // Iniciar y mostrar las misiones del tutorial
-            tutorialTimer = new javax.swing.Timer(1000, ev -> {
-                tutorial.actualizar(project);
-                TutorialSystem.Mission m = tutorial.obtenerMisionActual();
-                if (m != currentMission) {
-                    currentMission = m;
-                    if (m != null) {
-                        JOptionPane.showMessageDialog(this, m.instrucciones, m.nombre,
-                                JOptionPane.INFORMATION_MESSAGE);
-                    } else {
-                        JOptionPane.showMessageDialog(this,
-                                "¡Has completado todas las misiones!",
-                                "Tutorial", JOptionPane.INFORMATION_MESSAGE);
-                    }
-                }
-            });
-            tutorialTimer.setInitialDelay(0);
-            tutorialTimer.start();
+            tutorial.actualizar(project);
+            tutorialPanel.refresh();
         }
 
         void loadLastProject() {
@@ -1555,6 +1569,7 @@ public class ScratchMVP {
     static class EditorPanel extends JPanel {
         final Project project;
         final Runnable goStage;
+        final Runnable showTutorial;
 
         final EntityListPanel entityListPanel;
         final GlobalVarPanel globalVarPanel;
@@ -1562,10 +1577,11 @@ public class ScratchMVP {
         final PalettePanel palettePanel;
         final ScriptCanvasPanel scriptCanvas;
 
-        EditorPanel(Project project, Runnable goStage) {
+        EditorPanel(Project project, Runnable goStage, Runnable showTutorial) {
             super(new BorderLayout());
             this.project = project;
             this.goStage = goStage;
+            this.showTutorial = showTutorial;
 
             // Top bar
             JToolBar bar = new JToolBar();
@@ -1577,6 +1593,7 @@ public class ScratchMVP {
             JButton btnRenameEntity = new JButton("Renombrar Entidad");
             JButton btnSaveProj  = new JButton("Guardar");
             JButton btnLoadProj  = new JButton("Cargar");
+            JButton btnTutorial  = new JButton("Tutorial");
             bar.add(btnNewEntity);
             bar.add(btnCopyEntity);
             bar.add(btnRenameEntity);
@@ -1586,8 +1603,11 @@ public class ScratchMVP {
             bar.add(Box.createHorizontalStrut(20));
             bar.add(btnSaveProj);
             bar.add(btnLoadProj);
-
+            bar.add(btnTutorial);
+            
             add(bar, BorderLayout.NORTH);
+
+            btnTutorial.addActionListener(e -> showTutorial.run());
 
             // Left: Paleta y lista entidades
             JPanel left = new JPanel(new BorderLayout());
@@ -3783,6 +3803,60 @@ public class ScratchMVP {
             }
             // fallback
             return KeyEvent.VK_RIGHT;
+        }
+    }
+
+    // ====== PANEL TUTORIAL ======
+    static class TutorialPanel extends JPanel {
+        final TutorialSystem tutorial;
+        final JList<TutorialSystem.Mission> list;
+        final JTextArea info;
+
+        TutorialPanel(TutorialSystem t) {
+            super(new BorderLayout());
+            this.tutorial = t;
+            DefaultListModel<TutorialSystem.Mission> model = new DefaultListModel<>();
+            list = new JList<>(model);
+            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            info = new JTextArea();
+            info.setEditable(false);
+            info.setLineWrap(true);
+            info.setWrapStyleWord(true);
+            list.addListSelectionListener(e -> {
+                TutorialSystem.Mission m = list.getSelectedValue();
+                info.setText(m != null ? m.instrucciones : "");
+            });
+            list.setCellRenderer((lst, value, index, isSelected, cellHasFocus) -> {
+                JLabel lbl = new JLabel();
+                int idx = tutorial.getIndiceActual();
+                String prefix = index < idx ? "✔ " : index == idx ? "▶ " : "✖ ";
+                lbl.setText(prefix + value.nombre);
+                if (isSelected) {
+                    lbl.setBackground(lst.getSelectionBackground());
+                    lbl.setForeground(lst.getSelectionForeground());
+                } else {
+                    lbl.setBackground(lst.getBackground());
+                    lbl.setForeground(lst.getForeground());
+                }
+                lbl.setOpaque(true);
+                return lbl;
+            });
+            JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
+                    new JScrollPane(list), new JScrollPane(info));
+            split.setResizeWeight(0.5);
+            add(split, BorderLayout.CENTER);
+            refresh();
+        }
+
+        void refresh() {
+            DefaultListModel<TutorialSystem.Mission> model =
+                    (DefaultListModel<TutorialSystem.Mission>) list.getModel();
+            model.removeAllElements();
+            java.util.List<TutorialSystem.Mission> mis = tutorial.getMisiones();
+            for (TutorialSystem.Mission m : mis) model.addElement(m);
+            int idx = tutorial.getIndiceActual();
+            if (idx < mis.size()) list.setSelectedIndex(idx);
+            else if (!mis.isEmpty()) list.setSelectedIndex(mis.size() - 1);
         }
     }
 
