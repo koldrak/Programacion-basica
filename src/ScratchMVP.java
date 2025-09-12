@@ -1470,6 +1470,7 @@ public class ScratchMVP {
         final TutorialSystem tutorial = new TutorialSystem();
         TutorialSystem.Mission currentMission = tutorial.obtenerMisionActual();
         final TutorialPanel tutorialPanel;
+        final JDialog tutorialDialog;
 
         MainFrame() {
             super("Scratch MVP (Java Swing) — Editor y Escenario");
@@ -1479,14 +1480,20 @@ public class ScratchMVP {
 
             // Panels
             stagePanel = new StagePanel(project, keysDown);
+            tutorialPanel = new TutorialPanel(tutorial);
+            tutorialDialog = new JDialog(this, "Tutorial", false);
+            tutorialDialog.setContentPane(tutorialPanel);
+            tutorialDialog.pack();
+            tutorialDialog.setSize(400, 300);
+            tutorialDialog.setLocationRelativeTo(this);
+
             editorPanel = new EditorPanel(project, () -> {
                 // al pulsar "Ir al Escenario"
                 stagePanel.loadCurrentScenario();
                 cards.show(root, "stage");
                 stagePanel.requestFocusInWindow();
                 stagePanel.repaint();
-            });
-            tutorialPanel = new TutorialPanel(tutorial);
+            }, () -> tutorialDialog.setVisible(true));
 
             // Runtime
             runtime = new GameRuntime(project, stagePanel, keysDown);
@@ -1496,15 +1503,22 @@ public class ScratchMVP {
                         tutorial.actualizar(project);
                         TutorialSystem.Mission m = tutorial.obtenerMisionActual();
                         if (m != currentMission) {
-                            currentMission = m;
+                            int completada = tutorial.getIndiceActual();
+                            String titulo = "Tutorial " + completada + " completado";
+                            String msg = "Has completado el Tutorial " + completada + ".";
                             if (m != null) {
+                                String cont = "Continuar con tutorial " + (completada + 1);
+                                JOptionPane.showOptionDialog(stagePanel, msg, titulo,
+                                        JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
+                                        null, new Object[]{cont}, cont);
                                 JOptionPane.showMessageDialog(stagePanel, m.instrucciones, m.nombre,
                                         JOptionPane.INFORMATION_MESSAGE);
                             } else {
                                 JOptionPane.showMessageDialog(stagePanel,
-                                        "¡Has completado todas las misiones!",
-                                        "Tutorial", JOptionPane.INFORMATION_MESSAGE);
+                                        msg + "\n¡Has completado todas las misiones!",
+                                        titulo, JOptionPane.INFORMATION_MESSAGE);
                             }
+                            currentMission = m;
                         }
                         tutorialPanel.refresh();
                     },
@@ -1516,11 +1530,7 @@ public class ScratchMVP {
                     });
             stagePanel.setRuntime(runtime);
 
-            JTabbedPane editorTabs = new JTabbedPane();
-            editorTabs.addTab("Editor", editorPanel);
-            editorTabs.addTab("Tutorial", tutorialPanel);
-
-            root.add(editorTabs, "editor");
+            root.add(editorPanel, "editor");
             root.add(stagePanel, "stage");
 
             setContentPane(root);
@@ -1559,6 +1569,7 @@ public class ScratchMVP {
     static class EditorPanel extends JPanel {
         final Project project;
         final Runnable goStage;
+        final Runnable showTutorial;
 
         final EntityListPanel entityListPanel;
         final GlobalVarPanel globalVarPanel;
@@ -1566,10 +1577,11 @@ public class ScratchMVP {
         final PalettePanel palettePanel;
         final ScriptCanvasPanel scriptCanvas;
 
-        EditorPanel(Project project, Runnable goStage) {
+        EditorPanel(Project project, Runnable goStage, Runnable showTutorial) {
             super(new BorderLayout());
             this.project = project;
             this.goStage = goStage;
+            this.showTutorial = showTutorial;
 
             // Top bar
             JToolBar bar = new JToolBar();
@@ -1580,6 +1592,7 @@ public class ScratchMVP {
             JButton btnCopyEntity = new JButton("Copiar Entidad");
             JButton btnRenameEntity = new JButton("Renombrar Entidad");
             JButton btnSaveProj  = new JButton("Guardar");
+            JButton btnTutorial  = new JButton("Tutorial");
             JButton btnLoadProj  = new JButton("Cargar");
             bar.add(btnNewEntity);
             bar.add(btnCopyEntity);
@@ -1589,9 +1602,12 @@ public class ScratchMVP {
             bar.add(btnToStage);
             bar.add(Box.createHorizontalStrut(20));
             bar.add(btnSaveProj);
+            bar.add(btnTutorial);
             bar.add(btnLoadProj);
 
             add(bar, BorderLayout.NORTH);
+
+            btnTutorial.addActionListener(e -> showTutorial.run());
 
             // Left: Paleta y lista entidades
             JPanel left = new JPanel(new BorderLayout());
