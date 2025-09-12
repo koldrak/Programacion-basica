@@ -1330,72 +1330,75 @@ public class ScratchMVP {
                 case SPAWN_ENTITY -> {
                     String tplId = (String) ab.args.get("templateId");
                     Entity tpl = tplId != null ? project.getById(tplId) : null;
-                    if (tpl == null) tpl = e;
-                    // Al clonar entidades durante el juego siempre generamos un nuevo id
-                    // para evitar conflictos con la entidad original o con otras copias.
-                    Entity clone = stage.cloneEntity(tpl, false);
+                    if (tpl != null) {
+                        // Al clonar entidades durante el juego siempre generamos un nuevo id
+                        // para evitar conflictos con la entidad original o con otras copias.
+                        Entity clone = stage.cloneEntity(tpl, false);
 
-                    String mode = String.valueOf(ab.args.getOrDefault("mode", "MAP"));
-                    if ("MAP".equals(mode)) {
-                        double x = ((Number) ab.args.getOrDefault("x", clone.t.x)).doubleValue();
-                        double y = ((Number) ab.args.getOrDefault("y", clone.t.y)).doubleValue();
-                        clone.t.x = x;
-                        clone.t.y = y;
-                    } else if ("REL".equals(mode)) {
-                        String dir = String.valueOf(ab.args.getOrDefault("dir", "abajo"));
-                        double dist = ((Number) ab.args.getOrDefault("distance", 0.0)).doubleValue();
-                        switch (dir.toLowerCase(Locale.ROOT)) {
-                            case "arriba" -> {
-                                clone.t.x = e.t.x + (e.a.width - clone.a.width) / 2;
-                                clone.t.y = e.t.y - dist - clone.a.height;
+                        String mode = String.valueOf(ab.args.getOrDefault("mode", "MAP"));
+                        if ("MAP".equals(mode)) {
+                            double x = ((Number) ab.args.getOrDefault("x", clone.t.x)).doubleValue();
+                            double y = ((Number) ab.args.getOrDefault("y", clone.t.y)).doubleValue();
+                            clone.t.x = x;
+                            clone.t.y = y;
+                        } else if ("REL".equals(mode)) {
+                            String dir = String.valueOf(ab.args.getOrDefault("dir", "abajo"));
+                            double dist = ((Number) ab.args.getOrDefault("distance", 0.0)).doubleValue();
+                            switch (dir.toLowerCase(Locale.ROOT)) {
+                                case "arriba" -> {
+                                    clone.t.x = e.t.x + (e.a.width - clone.a.width) / 2;
+                                    clone.t.y = e.t.y - dist - clone.a.height;
+                                }
+                                case "izquierda" -> {
+                                    clone.t.x = e.t.x - dist - clone.a.width;
+                                    clone.t.y = e.t.y + (e.a.height - clone.a.height) / 2;
+                                }
+                                case "derecha" -> {
+                                    clone.t.x = e.t.x + e.a.width + dist;
+                                    clone.t.y = e.t.y + (e.a.height - clone.a.height) / 2;
+                                }
+                                default -> {
+                                    clone.t.x = e.t.x + (e.a.width - clone.a.width) / 2;
+                                    clone.t.y = e.t.y + e.a.height + dist;
+                                }
                             }
-                            case "izquierda" -> {
-                                clone.t.x = e.t.x - dist - clone.a.width;
-                                clone.t.y = e.t.y + (e.a.height - clone.a.height) / 2;
-                            }
-                            case "derecha" -> {
-                                clone.t.x = e.t.x + e.a.width + dist;
-                                clone.t.y = e.t.y + (e.a.height - clone.a.height) / 2;
-                            }
-                            default -> {
-                                clone.t.x = e.t.x + (e.a.width - clone.a.width) / 2;
-                                clone.t.y = e.t.y + e.a.height + dist;
-                            }
+                        } else {
+                            double maxX = Math.max(0, stage.stageWidth() - clone.a.width);
+                            double maxY = Math.max(0, stage.stageHeight() - clone.a.height);
+                            clone.t.x = Math.random() * maxX;
+                            clone.t.y = Math.random() * maxY;
                         }
+                        stage.clampEntity(clone);
+
+                        List<EventBlock> scripts = stage.cloneScripts(tpl.id);
+                        pendingOps.add(() -> {
+                            stage.entities.add(clone);
+                            project.scriptsByEntity.put(clone.id, scripts);
+                            List<EventBlock> roots = project.scriptsByEntity.getOrDefault(clone.id, Collections.emptyList());
+                            long now = System.currentTimeMillis();
+                            for (EventBlock ev : roots) {
+                                switch (ev.type) {
+                                    case ON_APPEAR -> triggerEvent(clone, ev);
+                                    case ON_TICK -> tickLastFire
+                                            .computeIfAbsent(clone.id, k -> new HashMap<>())
+                                            .put(ev, now);
+                                    case ON_VAR_CHANGE -> {
+                                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                                        double cur = clone.vars.getOrDefault(var, 0.0);
+                                        varLast.computeIfAbsent(clone.id, k -> new HashMap<>()).put(ev, cur);
+                                    }
+                                    case ON_GLOBAL_VAR_CHANGE -> {
+                                        String var = String.valueOf(ev.args.getOrDefault("var", "var"));
+                                        double cur = project.globalVars.getOrDefault(var, 0.0);
+                                        globalVarLast.put(ev, cur);
+                                    }
+                                    default -> {}
+                                }
+                            }
+                        });
                     } else {
-                        double maxX = Math.max(0, stage.stageWidth() - clone.a.width);
-                        double maxY = Math.max(0, stage.stageHeight() - clone.a.height);
-                        clone.t.x = Math.random() * maxX;
-                        clone.t.y = Math.random() * maxY;
+                        System.err.println("SPAWN_ENTITY: plantilla no encontrada " + tplId);
                     }
-                    stage.clampEntity(clone);
-
-                    List<EventBlock> scripts = stage.cloneScripts(tpl.id);
-                    pendingOps.add(() -> {
-                        stage.entities.add(clone);
-                        project.scriptsByEntity.put(clone.id, scripts);
-                        List<EventBlock> roots = project.scriptsByEntity.getOrDefault(clone.id, Collections.emptyList());
-                        long now = System.currentTimeMillis();
-                        for (EventBlock ev : roots) {
-                            switch (ev.type) {
-                                case ON_APPEAR -> triggerEvent(clone, ev);
-                                case ON_TICK -> tickLastFire
-                                        .computeIfAbsent(clone.id, k -> new HashMap<>())
-                                        .put(ev, now);
-                                case ON_VAR_CHANGE -> {
-                                    String var = String.valueOf(ev.args.getOrDefault("var", "var"));
-                                    double cur = clone.vars.getOrDefault(var, 0.0);
-                                    varLast.computeIfAbsent(clone.id, k -> new HashMap<>()).put(ev, cur);
-                                }
-                                case ON_GLOBAL_VAR_CHANGE -> {
-                                    String var = String.valueOf(ev.args.getOrDefault("var", "var"));
-                                    double cur = project.globalVars.getOrDefault(var, 0.0);
-                                    globalVarLast.put(ev, cur);
-                                }
-                                default -> {}
-                            }
-                        }
-                    });
                 }
                 case DELETE_ENTITY -> {
                     String targetId = (String) ab.args.get("targetId");
