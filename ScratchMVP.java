@@ -11,6 +11,7 @@ import java.util.*;
 import java.util.List;
 import java.awt.image.BufferedImage;
 import javax.imageio.ImageIO;
+import view.tutorial.IntroTutorial;
 
 /**
  * ScratchMVP - Editor + Escenario tipo Scratch (bloques mínimos).
@@ -1407,7 +1408,13 @@ public class ScratchMVP {
         if (!BACKGROUNDS_DIR.exists()) {
             BACKGROUNDS_DIR.mkdirs();
         }
-        SwingUtilities.invokeLater(() -> new MainFrame().setVisible(true));
+        SwingUtilities.invokeLater(() -> {
+            MainFrame frame = new MainFrame();
+            frame.setVisible(true);
+            IntroTutorial.showIfNeeded(frame,
+                    new IntroTutorial.Step(frame.editorPanel, "Editor: crea y conecta bloques"),
+                    new IntroTutorial.Step(frame.stagePanel, "Escenario: ejecuta tu proyecto"));
+        });
     }
 
     static class MainFrame extends JFrame {
