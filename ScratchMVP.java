@@ -9,6 +9,7 @@ import java.io.*;
 import java.util.*;
 import java.util.List;
 import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
 
 /**
  * ScratchMVP - Editor + Escenario tipo Scratch (bloques mínimos).
@@ -42,7 +43,8 @@ public class ScratchMVP {
         double opacity = 1.0;
         Polygon customPolygon = null; // para formas personalizadas
         String shapeName = null; // nombre de forma personalizada
-        Map<String, BufferedImage> paintImages = new HashMap<>();
+        transient Map<String, BufferedImage> paintImages = new HashMap<>();
+        Map<String, byte[]> paintImageBytes = new HashMap<>();
         Map<String, Color> colorByShape = new HashMap<>();
 
         String shapeKey() {
@@ -66,9 +68,26 @@ public class ScratchMVP {
             else paintImages.put(shapeKey(), img);
         }
 
+        private void writeObject(ObjectOutputStream out) throws IOException {
+            paintImageBytes = new HashMap<>();
+            for (Map.Entry<String, BufferedImage> e : paintImages.entrySet()) {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(e.getValue(), "png", baos);
+                paintImageBytes.put(e.getKey(), baos.toByteArray());
+            }
+            out.defaultWriteObject();
+        }
+
         private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
             in.defaultReadObject();
-            if (paintImages == null) paintImages = new HashMap<>();
+            paintImages = new HashMap<>();
+            if (paintImageBytes != null) {
+                for (Map.Entry<String, byte[]> e : paintImageBytes.entrySet()) {
+                    ByteArrayInputStream bais = new ByteArrayInputStream(e.getValue());
+                    BufferedImage img = ImageIO.read(bais);
+                    if (img != null) paintImages.put(e.getKey(), img);
+                }
+            }
             if (colorByShape == null) colorByShape = new HashMap<>();
         }
     }
