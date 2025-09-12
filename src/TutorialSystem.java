@@ -50,30 +50,40 @@ public class TutorialSystem {
         }
     }
 
+    public List<Mission> getMisiones() {
+        return misiones;
+    }
+
+    public int getIndiceActual() {
+        return indiceActual;
+    }
+
     // ====== Definición de misiones ======
 
     private static Mission m1() {
-        String instr = "1. Arrastra el bloque 'Al iniciar'.\n" +
-                "2. Conecta debajo un bloque 'Decir' y escribe 'Hola'.\n" +
-                "3. Presiona Ejecutar: la entidad debe saludar al empezar.";
+        String instr = "Paso 1: En la paleta de la izquierda, busca el bloque 'Al iniciar' y arrástralo al área de scripts.\n" +
+                "Paso 2: Desde la sección de Acciones, arrastra un bloque 'Decir' y conéctalo justo debajo de 'Al iniciar'.\n" +
+                "Paso 3: Haz doble clic sobre el texto del bloque 'Decir' y escribe 'Hola'.\n" +
+                "Paso 4: Presiona el botón Ejecutar para ver cómo la entidad saluda al comenzar.";
         return new Mission("Misión 1 – ¡Di hola!", instr,
                 p -> tieneEventoAccion(p, ScratchMVP.EventType.ON_START,
                         ScratchMVP.ActionType.SAY));
     }
 
     private static Mission m2() {
-        String instr = "1. Crea cuatro eventos 'Tecla' para W, A, S y D.\n" +
-                "2. Bajo cada uno coloca un bloque 'Mover' en la dirección correspondiente.\n" +
-                "3. Al probar, la entidad debe moverse con el teclado.";
+        String instr = "Paso 1: Arrastra un evento 'Tecla' y configúralo con la tecla W.\n" +
+                "Paso 2: Conecta un bloque 'Mover' hacia arriba debajo de ese evento.\n" +
+                "Paso 3: Repite el proceso para las teclas A, S y D moviendo izquierda, abajo y derecha respectivamente.\n" +
+                "Paso 4: Ejecuta el proyecto y verifica que la entidad se mueva con el teclado.";
         return new Mission("Misión 2 – Mover con WASD", instr,
                 p -> tieneMovimientoWASD(p));
     }
 
     private static Mission m3() {
-        String instr = "1. Añade un bloque 'Color' para cambiar el color de la entidad.\n" +
-                "2. Inserta un bloque 'Forma' para elegir una figura distinta.\n" +
-                "3. Usa 'Escalar' para modificar el tamaño.\n" +
-                "4. Ejecuta y observa el nuevo aspecto.";
+        String instr = "Paso 1: En la paleta, arrastra un bloque 'Color' y elige un color nuevo para la entidad.\n" +
+                "Paso 2: Añade un bloque 'Forma' y selecciona una figura diferente.\n" +
+                "Paso 3: Inserta un bloque 'Escalar' para aumentar o disminuir el tamaño.\n" +
+                "Paso 4: Ejecuta el proyecto para apreciar el cambio de apariencia.";
         return new Mission("Misión 3 – Apariencia", instr,
                 p -> tieneAccion(p, ScratchMVP.ActionType.SET_COLOR)
                         && tieneAccion(p, ScratchMVP.ActionType.SET_SHAPE)
@@ -81,25 +91,27 @@ public class TutorialSystem {
     }
 
     private static Mission m4() {
-        String instr = "1. Crea una variable local llamada 'pasos' con 'Fijar pasos a 0'.\n" +
-                "2. En cada evento de movimiento añade 'Cambiar pasos en 1'.\n" +
-                "3. Ejecuta y verifica que el valor aumenta al mover.";
+        String instr = "Paso 1: Crea una variable local llamada 'pasos'.\n" +
+                "Paso 2: Usa el bloque 'Fijar pasos a 0' para inicializarla al comenzar.\n" +
+                "Paso 3: En cada evento de movimiento agrega el bloque 'Cambiar pasos en 1'.\n" +
+                "Paso 4: Ejecuta y observa cómo la variable aumenta mientras te desplazas.";
         return new Mission("Misión 4 – Contador de pasos", instr,
                 p -> tieneVarInicializadaYCambio(p, "pasos"));
     }
 
     private static Mission m5() {
-        String instr = "1. Inserta un bloque 'Si pasos > 10'.\n" +
-                "2. Dentro del 'Si' coloca un bloque 'Decir \"¡Meta!\"'.\n" +
-                "3. Mueve la entidad hasta superar el límite para ver el mensaje.";
+        String instr = "Paso 1: Añade un bloque condicional 'Si pasos > 10'.\n" +
+                "Paso 2: Dentro del condicional, coloca un bloque 'Decir' con el texto '¡Meta!'.\n" +
+                "Paso 3: Ejecuta y mueve la entidad hasta superar el límite para que aparezca el mensaje.";
         return new Mission("Misión 5 – Condición de meta", instr,
                 p -> tieneCondicionalConSay(p, "pasos"));
     }
 
     private static Mission m6() {
-        String instr = "1. Usa 'Crear entidad' para generar una moneda.\n" +
-                "2. Programa 'Al colisionar' con la moneda: 'Cambiar puntaje en 1' y 'Eliminar entidad'.\n" +
-                "3. Prueba recoger la moneda para aumentar el puntaje.";
+        String instr = "Paso 1: Utiliza el bloque 'Crear entidad' para generar una moneda en el escenario.\n" +
+                "Paso 2: Programa un evento 'Al colisionar' con la moneda.\n" +
+                "Paso 3: Dentro del evento, agrega 'Cambiar puntaje en 1' y luego 'Eliminar entidad'.\n" +
+                "Paso 4: Ejecuta y recoge la moneda para aumentar el puntaje.";
         return new Mission("Misión 6 – Colisión y puntos", instr,
                 p -> tieneAccion(p, ScratchMVP.ActionType.SPAWN_ENTITY)
                         && tieneEventoAccion(p, ScratchMVP.EventType.ON_COLLIDE,
@@ -109,17 +121,18 @@ public class TutorialSystem {
     }
 
     private static Mission m7() {
-        String instr = "1. Inserta un bloque 'Aleatorio' o 'Si azar'.\n" +
-                "2. Define dos resultados distintos para explorar decisiones al azar.";
+        String instr = "Paso 1: Inserta un bloque 'Aleatorio' o 'Si azar'.\n" +
+                "Paso 2: Define dos acciones distintas para cada resultado posible.\n" +
+                "Paso 3: Ejecuta varias veces para observar decisiones al azar.";
         return new Mission("Misión 7 – Azar", instr,
                 p -> tieneAccion(p, ScratchMVP.ActionType.RANDOM)
                         || tieneAccion(p, ScratchMVP.ActionType.IF_RANDOM_CHANCE));
     }
 
     private static Mission m8() {
-        String instr = "1. Crea una variable global 'vidas' con valor 3.\n" +
-                "2. Resta 1 cuando el jugador choque con un obstáculo.\n" +
-                "3. Cuando 'vidas' sea 0 cambia a una escena de Game Over.";
+        String instr = "Paso 1: Crea una variable global llamada 'vidas' e inicialízala en 3.\n" +
+                "Paso 2: Configura que al colisionar con un obstáculo se reste 1 a 'vidas'.\n" +
+                "Paso 3: Añade una condición que cambie a una escena de Game Over cuando 'vidas' sea 0.";
         return new Mission("Misión 8 – Vidas y escenas", instr,
                 p -> (tieneAccion(p, ScratchMVP.ActionType.SET_GLOBAL_VAR)
                         || tieneAccion(p, ScratchMVP.ActionType.CHANGE_GLOBAL_VAR))
@@ -127,8 +140,9 @@ public class TutorialSystem {
     }
 
     private static Mission m9() {
-        String instr = "1. Combina todas las funciones anteriores para construir un nivel completo.\n" +
-                "2. Usa 'Ir a escena' y 'Detener' para mostrar victoria o derrota.";
+        String instr = "Paso 1: Diseña un nivel usando las técnicas de las misiones anteriores.\n" +
+                "Paso 2: Emplea 'Ir a escena' y 'Detener' para mostrar mensajes de victoria o derrota.\n" +
+                "Paso 3: Ajusta detalles y prueba hasta que el juego quede completo.";
         return new Mission("Misión 9 – Juego completo", instr,
                 p -> tieneAccion(p, ScratchMVP.ActionType.GOTO_SCENE)
                         && tieneAccion(p, ScratchMVP.ActionType.STOP));
