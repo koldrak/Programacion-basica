@@ -1408,6 +1408,15 @@ public class ScratchMVP {
                     JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                     JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
             canvasScroll.getVerticalScrollBar().setUnitIncrement(16);
+            canvasScroll.getVerticalScrollBar().addAdjustmentListener(ev -> {
+                JScrollBar sb = (JScrollBar) ev.getAdjustable();
+                if (!ev.getValueIsAdjusting() &&
+                        sb.getValue() + sb.getVisibleAmount() >= sb.getMaximum()) {
+                    Dimension cur = scriptCanvas.getPreferredSize();
+                    scriptCanvas.setPreferredSize(new Dimension(cur.width, cur.height + 400));
+                    scriptCanvas.revalidate();
+                }
+            });
 
             // Right: Inspector
             inspectorPanel = new InspectorPanel(project, entityListPanel, scriptCanvas);
@@ -2519,7 +2528,8 @@ public class ScratchMVP {
             super(null); // absolute layout
             this.project = p; this.listPanel = lp;
             setBackground(new Color(0xFAFAFA));
-            setPreferredSize(new Dimension(600, 600));
+            // tamaño inicial amplio para permitir scroll
+            setPreferredSize(new Dimension(800, 800));
 
             setBorder(BorderFactory.createTitledBorder("Editor de Bloques"));
             listPanel.list.addListSelectionListener(e -> redrawForSelected());
@@ -2554,6 +2564,7 @@ public class ScratchMVP {
             bv.setSize(ps);
             block.x = bx; block.y = by;
             getViews(sel).add(bv);
+            ensureFits(bv.getBounds());
 
             // si es evento y no existe aún en scripts, añadir raíz
             if (block instanceof EventBlock) {
@@ -2569,6 +2580,20 @@ public class ScratchMVP {
 
         List<BlockView> getViews(Entity e) {
             return viewsByEntity.computeIfAbsent(e.id, k -> new ArrayList<>());
+        }
+
+        // Ajusta el tamaño del canvas para que contenga el rectángulo dado
+        void ensureFits(Rectangle r) {
+            int pad = 200; // margen extra
+            Dimension cur = getPreferredSize();
+            int nw = cur.width;
+            int nh = cur.height;
+            if (r.x + r.width + pad > cur.width) nw = r.x + r.width + pad;
+            if (r.y + r.height + pad > cur.height) nh = r.y + r.height + pad;
+            if (nw != cur.width || nh != cur.height) {
+                setPreferredSize(new Dimension(nw, nh));
+                revalidate();
+            }
         }
 
         void redrawForSelected() {
@@ -2593,6 +2618,7 @@ public class ScratchMVP {
             v.setLocation(b.x, b.y);
             v.setSize(v.getPreferredSize());
             list.add(v);
+            ensureFits(v.getBounds());
             if (b instanceof ActionBlock ab && (ab.type == ActionType.RANDOM || ab.type == ActionType.IF_VAR || ab.type == ActionType.IF_GLOBAL_VAR || ab.type == ActionType.IF_RANDOM_CHANCE)) {
                 for (Block extra : ab.extraNext) addRecursive(extra, list);
             }
@@ -2830,6 +2856,7 @@ public class ScratchMVP {
                 setLocation(p);
                 block.x = p.x; block.y = p.y;
                 repaint();
+                canvas.ensureFits(getBounds());
                 canvas.repaint();
             }
             super.processMouseMotionEvent(e);
