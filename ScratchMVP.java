@@ -9,6 +9,7 @@ import java.io.*;
 import java.util.*;
 import java.util.List;
 import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
 
 /**
  * ScratchMVP - Editor + Escenario tipo Scratch (bloques mínimos).
@@ -36,13 +37,15 @@ public class ScratchMVP {
     }
 
     static class Appearance implements Serializable {
+        private static final long serialVersionUID = 9191861603754096743L;
         ShapeType shape = ShapeType.RECT;
         Color color = new Color(0x2E86DE);
         double width = 60, height = 60; // si CIRCLE, usa radius = width/2
         double opacity = 1.0;
         Polygon customPolygon = null; // para formas personalizadas
         String shapeName = null; // nombre de forma personalizada
-        Map<String, BufferedImage> paintImages = new HashMap<>();
+        transient Map<String, BufferedImage> paintImages = new HashMap<>();
+        Map<String, byte[]> paintImageBytes = new HashMap<>();
         Map<String, Color> colorByShape = new HashMap<>();
 
         String shapeKey() {
@@ -66,10 +69,29 @@ public class ScratchMVP {
             else paintImages.put(shapeKey(), img);
         }
 
+        private void writeObject(ObjectOutputStream out) throws IOException {
+            paintImageBytes = new HashMap<>();
+            for (Map.Entry<String, BufferedImage> e : paintImages.entrySet()) {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(e.getValue(), "png", baos);
+                paintImageBytes.put(e.getKey(), baos.toByteArray());
+            }
+            out.defaultWriteObject();
+            paintImageBytes = null;
+        }
+
         private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
             in.defaultReadObject();
-            if (paintImages == null) paintImages = new HashMap<>();
+            paintImages = new HashMap<>();
+            if (paintImageBytes != null) {
+                for (Map.Entry<String, byte[]> e : paintImageBytes.entrySet()) {
+                    ByteArrayInputStream bais = new ByteArrayInputStream(e.getValue());
+                    BufferedImage img = ImageIO.read(bais);
+                    if (img != null) paintImages.put(e.getKey(), img);
+                }
+            }
             if (colorByShape == null) colorByShape = new HashMap<>();
+            paintImageBytes = null;
         }
     }
 
@@ -192,17 +214,45 @@ public class ScratchMVP {
     static void loadProject(Project target, File f) {
         try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(f))) {
             Project src = (Project) in.readObject();
-            target.entities = src.entities;
-            target.scriptsByEntity = src.scriptsByEntity;
-            target.globalVars = src.globalVars;
-            target.shapes = src.shapes != null ? src.shapes : new LinkedHashMap<>();
-            target.canvas = src.canvas;
-            target.scenarios = src.scenarios != null ? src.scenarios : new ArrayList<>();
-            if (target.scenarios.isEmpty()) target.scenarios.add(new Scenario());
-            target.currentScenario = src.currentScenario;
+            applyProject(target, src);
+        } catch (InvalidClassException ex) {
+            int opt = JOptionPane.showConfirmDialog(null,
+                    "El proyecto es de una version anterior\n¿quieres abrirlo igualmente?",
+                    "Version incompatible", JOptionPane.YES_NO_OPTION);
+            if (opt == JOptionPane.YES_OPTION) {
+                try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(f)) {
+                    @Override
+                    protected ObjectStreamClass readClassDescriptor() throws IOException, ClassNotFoundException {
+                        ObjectStreamClass desc = super.readClassDescriptor();
+                        try {
+                            Class<?> localClass = Class.forName(desc.getName());
+                            ObjectStreamClass localDesc = ObjectStreamClass.lookup(localClass);
+                            return localDesc != null ? localDesc : desc;
+                        } catch (ClassNotFoundException e) {
+                            return desc;
+                        }
+                    }
+                }) {
+                    Project src = (Project) in.readObject();
+                    applyProject(target, src);
+                } catch (IOException | ClassNotFoundException e) {
+                    e.printStackTrace();
+                }
+            }
         } catch (IOException | ClassNotFoundException ex) {
             ex.printStackTrace();
         }
+    }
+
+    private static void applyProject(Project target, Project src) {
+        target.entities = src.entities;
+        target.scriptsByEntity = src.scriptsByEntity;
+        target.globalVars = src.globalVars;
+        target.shapes = src.shapes != null ? src.shapes : new LinkedHashMap<>();
+        target.canvas = src.canvas;
+        target.scenarios = src.scenarios != null ? src.scenarios : new ArrayList<>();
+        if (target.scenarios.isEmpty()) target.scenarios.add(new Scenario());
+        target.currentScenario = src.currentScenario;
     }
 
     static BufferedImage copyImage(BufferedImage img) {
