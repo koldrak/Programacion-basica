@@ -3874,7 +3874,9 @@ public class ScratchMVP {
 
             btnSetBg.addActionListener(e -> {
                 JFileChooser fc = new JFileChooser(BACKGROUNDS_DIR);
-                fc.setFileFilter(new FileNameExtensionFilter("PNG", "png"));
+                fc.setFileFilter(new FileNameExtensionFilter(
+                        "Imágenes (PNG, JPG, JPEG, GIF, BMP)",
+                        "png", "jpg", "jpeg", "gif", "bmp"));
                 if (fc.showOpenDialog(StagePanel.this) == JFileChooser.APPROVE_OPTION) {
                     File f = fc.getSelectedFile();
                     Scenario sc = project.scenarios.get(currentScenario);
