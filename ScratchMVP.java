@@ -2062,6 +2062,7 @@ public class ScratchMVP {
                 int dragIdx = -1;
                 int hoverIdx = -1;
                 final int HIT = 6;
+                Polygon onion = null;
                 DrawPanel() {
                     setPreferredSize(new Dimension(300,300));
                     setBackground(Color.WHITE);
@@ -2070,6 +2071,7 @@ public class ScratchMVP {
                     addKeyListener(this);
                     setFocusable(true);
                 }
+                void setOnion(Polygon p) { onion = p; repaint(); }
                 int findIndex(Point p) {
                     for (int i = 0; i < pts.size(); i++) {
                         if (p.distance(pts.get(i)) <= HIT) return i;
@@ -2079,6 +2081,17 @@ public class ScratchMVP {
                 @Override protected void paintComponent(Graphics g) {
                     super.paintComponent(g);
                     Graphics2D g2 = (Graphics2D) g;
+                    if (onion != null) {
+                        Rectangle b = onion.getBounds();
+                        AffineTransform at = new AffineTransform();
+                        at.translate(getWidth() / 2.0 - b.getCenterX(),
+                                     getHeight() / 2.0 - b.getCenterY());
+                        Shape s = at.createTransformedShape(onion);
+                        g2.setColor(new Color(0,0,0,50));
+                        g2.fill(s);
+                        g2.setColor(new Color(0,0,0,100));
+                        g2.draw(s);
+                    }
                     for (int i=0;i<pts.size();i++) {
                         Point p = pts.get(i);
                         g2.setColor(i == hoverIdx ? Color.RED : Color.BLACK);
@@ -2133,6 +2146,7 @@ public class ScratchMVP {
             DrawPanel dp = new DrawPanel();
             JButton ok = new JButton("Aceptar");
             JButton cancel = new JButton("Cancelar");
+            JButton trace = new JButton("Papel calco");
             final Polygon[] polyRes = new Polygon[1];
             final String[] nameRes = new String[1];
             final JDialog dlg = new JDialog((Frame) SwingUtilities.getWindowAncestor(this), "Dibujar polígono", true);
@@ -2161,7 +2175,21 @@ public class ScratchMVP {
                 }
             });
             cancel.addActionListener(ev -> { polyRes[0] = null; dlg.dispose(); });
-            JPanel bp = new JPanel(); bp.add(ok); bp.add(cancel);
+            trace.addActionListener(ev -> {
+                if (project.shapes.isEmpty()) {
+                    JOptionPane.showMessageDialog(dlg, "No hay formas disponibles");
+                    return;
+                }
+                JSpinner sp = new JSpinner(new SpinnerListModel(project.shapes.keySet().toArray(new String[0])));
+                int r = JOptionPane.showConfirmDialog(dlg, sp, "Seleccionar forma", JOptionPane.OK_CANCEL_OPTION);
+                if (r == JOptionPane.OK_OPTION) {
+                    String nm = sp.getValue().toString();
+                    Polygon poly = project.shapes.get(nm);
+                    dp.setOnion(poly);
+                    dp.requestFocusInWindow();
+                }
+            });
+            JPanel bp = new JPanel(); bp.add(trace); bp.add(ok); bp.add(cancel);
             dlg.getContentPane().add(dp, BorderLayout.CENTER);
             dlg.getContentPane().add(bp, BorderLayout.SOUTH);
             dlg.pack(); dlg.setLocationRelativeTo(this); dlg.setVisible(true);
