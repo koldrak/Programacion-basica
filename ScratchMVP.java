@@ -2786,10 +2786,19 @@ public class ScratchMVP {
         void scriptChanged() {
             Entity sel = listPanel.getSelected();
             if (sel == null) return;
-            for (Scenario sc : project.scenarios) {
+            // Actualizar scripts de entidades basadas en la plantilla
+            for (int i = 0; i < project.scenarios.size(); i++) {
+                Scenario sc = project.scenarios.get(i);
                 for (Entity en : sc.entities) {
                     if (sel.id.equals(en.templateId)) {
+                        // Clonar scripts para el escenario almacenado
                         sc.scriptsByEntity.put(en.id, cloneScripts(sel.id));
+                        // Si la entidad pertenece al escenario actual, también
+                        // actualizamos el mapa de scripts en edición para reflejar
+                        // el cambio inmediatamente en el canvas.
+                        if (i == project.currentScenario) {
+                            project.scriptsByEntity.put(en.id, cloneScripts(sel.id));
+                        }
                     }
                 }
             }
