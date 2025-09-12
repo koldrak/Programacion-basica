@@ -42,8 +42,8 @@ public class ScratchMVP {
         double opacity = 1.0;
         Polygon customPolygon = null; // para formas personalizadas
         String shapeName = null; // nombre de forma personalizada
-        transient Map<String, BufferedImage> paintImages = new HashMap<>();
-        transient Map<String, Color> colorByShape = new HashMap<>();
+        Map<String, BufferedImage> paintImages = new HashMap<>();
+        Map<String, Color> colorByShape = new HashMap<>();
 
         String shapeKey() {
             return shape == ShapeType.POLYGON ? "POLYGON:" + (shapeName != null ? shapeName : "") : shape.name();
@@ -64,6 +64,12 @@ public class ScratchMVP {
         void setPaintImage(BufferedImage img) {
             if (img == null) paintImages.remove(shapeKey());
             else paintImages.put(shapeKey(), img);
+        }
+
+        private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+            in.defaultReadObject();
+            if (paintImages == null) paintImages = new HashMap<>();
+            if (colorByShape == null) colorByShape = new HashMap<>();
         }
     }
 
