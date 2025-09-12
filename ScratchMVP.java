@@ -1713,7 +1713,7 @@ public class ScratchMVP {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
             c.vars.putAll(src.vars);
-            if (src.visibleVars != null && !src.visibleVars.isEmpty()) {
+            if (src.visibleVars != null) {
                 c.visibleVars.addAll(src.visibleVars);
             } else {
                 c.visibleVars.addAll(src.vars.keySet());
@@ -2272,7 +2272,7 @@ public class ScratchMVP {
                         en.vars.clear();
                         en.vars.putAll(tpl.vars);
                         en.visibleVars.clear();
-                        if (tpl.visibleVars != null && !tpl.visibleVars.isEmpty()) {
+                        if (tpl.visibleVars != null) {
                             en.visibleVars.addAll(tpl.visibleVars);
                         } else {
                             en.visibleVars.addAll(tpl.vars.keySet());
@@ -4116,7 +4116,7 @@ public class ScratchMVP {
                 c.a.customPolygon = new Polygon(src.a.customPolygon.xpoints, src.a.customPolygon.ypoints, src.a.customPolygon.npoints);
             }
             c.vars.putAll(src.vars);
-            if (src.visibleVars != null && !src.visibleVars.isEmpty()) {
+            if (src.visibleVars != null) {
                 c.visibleVars.addAll(src.visibleVars);
             } else {
                 c.visibleVars.addAll(src.vars.keySet());
